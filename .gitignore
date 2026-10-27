@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.py[cod]
+.env*
+*.local.json
+config.json
+*.pem
+*.key
+.coverage
+.pytest_cache/

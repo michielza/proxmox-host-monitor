@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="description" content="Simple, read-only Proxmox host resources.">
+  <title>Proxmox Host Monitor</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/labels.css">
+  <script src="/static/app.js" defer></script>
+</head>
+<body>
+  <section id="login" class="gate" hidden>
+    <form id="login-form" class="login-card">
+      <div class="brand-mark">▤</div><p class="eyebrow">PROXMOX HOST MONITOR</p>
+      <h1>Your hosts. At a glance.</h1><p class="muted">Enter the shared access key to continue.</p>
+      <label for="access-key">Access key</label>
+      <input id="access-key" type="password" autocomplete="current-password" required maxlength="512">
+      <button type="submit" class="primary">Unlock monitor <span>→</span></button>
+      <p id="login-error" class="error" role="alert"></p>
+      <p class="fine">Read-only access to your host resources</p>
+    </form>
+  </section>
+  <div id="shell" class="shell" hidden>
+    <aside class="sidebar">
+      <a class="brand" href="/"><span class="brand-mark">▤</span><span>HOST MONITOR<small>PROXMOX RESOURCES</small></span></a>
+      <label class="sr-only" for="search">Find a server</label>
+      <input id="search" type="search" placeholder="Find a server…" autocomplete="off">
+      <div class="side-caption"><span>INFRASTRUCTURE</span><span id="host-count">0</span></div>
+      <nav id="tree" aria-label="Providers, locations and servers"></nav>
+      <div class="sidebar-bottom"><button id="settings-button">⚙ Configuration</button><button id="logout">Lock monitor ↗</button><p>Read-only by design</p></div>
+    </aside>
+    <main>
+      <header class="topbar"><span id="breadcrumb">Infrastructure</span><span class="readonly"><span class="dot"></span> Read-only API</span></header>
+      <section id="empty" class="empty" hidden><h1>No servers yet.</h1><p>Add your first server in Configuration.</p><button id="empty-add" class="primary">Add a server</button></section>
+      <section id="overview" hidden>
+        <div class="page-heading"><div><p class="eyebrow">SERVER RESOURCES</p><h1 id="server-name"></h1><div id="server-labels" class="labels"></div></div><div class="refresh-box"><button id="refresh">↻ Refresh</button><span id="updated">Waiting for first sample</span></div></div>
+        <div class="statusline"><span id="connection" role="status">Connecting…</span><span id="sample-note">Updates every 10s while visible</span></div>
+        <p id="stats-error" class="notice error" role="alert" hidden></p>
+        <div class="resource-grid">
+          <article class="resource"><div class="card-top"><h2>CPU</h2><span class="metric-icon">▦</span></div><p id="cpu-value" class="big-value">—</p><p id="cpu-model" class="metric-description">Waiting for data</p><p id="cpu-spec" class="muted">—</p><div id="cpu-labels" class="labels"></div><progress id="cpu-bar" max="100" value="0" aria-label="CPU usage"></progress><div class="graph-caption"><span>Usage · last 5 minutes</span><span id="cpu-range">0–100%</span></div><svg id="cpu-graph" class="sparkline" viewBox="0 0 300 62" role="img" aria-label="CPU usage over five minutes"></svg></article>
+          <article class="resource"><div class="card-top"><h2>Memory</h2><span class="metric-icon">▥</span></div><p id="ram-value" class="big-value">—</p><p id="ram-spec" class="metric-description">Available memory</p><p id="ram-used" class="muted">—</p><div id="ram-labels" class="labels"></div><progress id="ram-bar" max="100" value="0" aria-label="Memory usage"></progress><div class="graph-caption"><span>Usage · last 5 minutes</span><span>0–100%</span></div><svg id="ram-graph" class="sparkline" viewBox="0 0 300 62" role="img" aria-label="RAM usage over five minutes"></svg></article>
+        </div>
+        <article class="storage-card"><div class="card-top"><div><h2>Storage</h2><p class="muted">Every Proxmox storage entry, shown separately.</p></div><span id="storage-count" class="badge">—</span></div><div class="table-scroll"><table><thead><tr><th>Storage / labels</th><th>Type</th><th>Used / total</th><th>Available</th><th>Usage</th></tr></thead><tbody id="storage-body"></tbody></table></div><p class="fine">Entries can share underlying disks. Capacity is not summed.</p></article>
+        <div class="secondary-grid"><article class="compact-card"><h2>Guests</h2><div id="guest-counts">—</div><p class="fine">Templates excluded · API-visible guests only</p></article><article class="compact-card"><h2>Network ports</h2><div id="network-ports">—</div><p class="fine">Interface state from Proxmox; physical link speed and traffic rates are not available in this build.</p></article><article class="compact-card"><h2>Ping <span class="fine">from monitor</span></h2><p id="ping-value" class="small-value">—</p><svg id="ping-graph" class="sparkline short" viewBox="0 0 300 62" role="img" aria-label="Ping over five minutes"></svg><p class="fine">No response may mean ICMP is blocked.</p></article></div>
+        <footer><span id="version"></span><span>Five-minute browser buffer · cleared on reload</span></footer>
+      </section>
+      <section id="settings" hidden>
+        <div class="page-heading"><div><p class="eyebrow">CONFIGURATION</p><h1>Keep it simple.</h1><p class="muted">Connections, grouping and component labels.</p></div><button id="back-button">← Back to monitor</button></div>
+        <div class="settings-grid"><div class="settings-list"><h2>Servers</h2><div id="settings-hosts"></div><button id="new-host" class="primary">+ Add server</button></div>
+        <form id="host-form" class="form-card"><h2 id="form-heading">Add server</h2><input id="host-id" type="hidden">
+          <div class="form-grid"><label>Display name<input id="host-name" required maxlength="160" placeholder="Server 01"></label><label>Proxmox node name<input id="host-node" required maxlength="160" placeholder="pve-01"></label><label>Provider<input id="host-provider" required maxlength="160" placeholder="Example Provider"></label><label>Location<input id="host-location" required maxlength="160" placeholder="Example Location"></label></div>
+          <label>API URL<input id="host-url" type="url" required placeholder="https://pve.example.net:8006" maxlength="500"></label>
+          <label>Token ID<input id="host-token-id" required placeholder="monitor@pve!dashboard" maxlength="250" autocomplete="off"></label>
+          <label>Token secret<input id="host-token-secret" type="password" autocomplete="new-password" maxlength="500"><small>Stored only on the backend. Leave blank to retain it when editing the same connection.</small></label>
+          <label>Trusted CA file <span class="fine">optional</span><input id="host-ca" placeholder="/etc/proxmox-host-monitor/pve-ca.pem" maxlength="500"><small>Absolute path on the monitor VM. Certificate verification is always enabled.</small></label>
+          <div class="label-editor"><h2>Component labels</h2><p class="fine">Add your own descriptions, such as SSD, ECC or Public uplink.</p><div id="label-rows"></div><button id="add-label" type="button">+ Add label</button></div>
+          <div class="form-actions"><button type="submit" class="primary">Save server</button><button id="delete-host" type="button" class="danger" hidden>Remove from monitor</button></div><p id="config-message" role="status"></p>
+          <p class="fine">Anyone with the shared access key can edit these settings. Saving never changes Proxmox.</p>
+        </form></div>
+      </section>
+    </main>
+  </div>
+  <p id="startup-error" class="notice error" role="alert" hidden></p>
+</body>
+</html>
