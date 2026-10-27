@@ -80,3 +80,17 @@ Windows verification: 42 tests ran, with the POSIX file-permission test and real
 
 
 PR #3 finding disposition: F1 (additional RTT locales), F3 (first-address dual-stack selection) and F4 (legacy Windows exit codes) are accepted compatibility limits and documented in README. F2 is addressed with the dependency license notice and upstream license link. No runtime code changed after independent review.
+
+## IP HTTPS deployment review checkpoint
+
+Configuration-only proposal: bootstrap nginx serves ACME challenges without proxying the application, then the HTTPS site uses a browser-trusted IP certificate and fixed Host/redirect values. Gunicorn stays on loopback; the app drop-in disables plaintext tunnel mode, enables secure cookies and limits trusted scheme forwarding to the loopback proxy. nginx overwrites scheme headers and removes alternate scheme headers supplied by clients. No application code or private host configuration changes are proposed.
+
+Certbot 5.8.0 uses an isolated virtual environment because older distribution clients may lack IP-webroot support. The hourly timer targets only the monitor's certificate lineage. Renewal reloads nginx only after a configuration check; staged certificate tests must not replace the trusted production certificate. No DNS access is needed, and no real IP address or certificate belongs in this repository.
+
+Development evidence: an extracted distribution nginx 1.28.3 binary passed configuration validation. Loopback-only integration checked verified test TLS with a generated local CA, fixed redirects, GET-only challenge handling, bootstrap isolation, rejection of direct plaintext app requests, Secure/HttpOnly/SameSite cookies, an authenticated host-list read, spoofed alternate scheme headers, and cross-origin rejection. The separate test app retained production's service restrictions, including PrivateTmp. Temporary units were stopped afterward; checksums confirmed that the production unit and private configuration stayed unchanged. Renewal unit syntax was also checked. No public listeners or ACME accounts were created for these checks.
+
+Independent review focus: bootstrap-to-HTTPS ordering and rollback, fixed authority/redirect behavior, scheme-header trust, cookie and origin handling, certificate issuance/renewal commands, and timer/hook reliability. Login throttling currently shares nginx's loopback address; no client-IP middleware is introduced. Independent review and the real public issuance/renewal tests are pending before deployment.
+
+## PR 4 independent review follow-up
+
+Reika approved the configuration-only proposal with one low and four informational findings. F1 is addressed by documenting that HSTS does not apply to IP literals and that the HTTPS URL should be used directly; an HTTP redirect is not downgrade protection for an initial insecure request. F2's operational concern is accepted with daily journal/expiry checks until independent monitoring exists. Its suggested expiry-email remedy is corrected: Let's Encrypt stopped expiry notification emails in 2025, so registration does not restore them. F3 documents IPv4-only listeners and coordinated future IPv6/DNS rollout. F4 is an explicit installed-binary option check before issuance. F5 retains the existing 64 KiB body limit. No proxy or application runtime behavior changed after independent review. Public ACME validation, issuance, renewal-hook testing and final activation remain deployment checks.

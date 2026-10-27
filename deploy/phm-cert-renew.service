@@ -1,0 +1,12 @@
+[Unit]
+Description=Renew the Proxmox Host Monitor IP certificate
+After=network-online.target nginx.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/phm-certbot/bin/certbot renew --quiet --cert-name phm-ip
+TimeoutStartSec=10min
+UMask=0077
+PrivateTmp=true
+NoNewPrivileges=true
