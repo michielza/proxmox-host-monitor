@@ -101,9 +101,12 @@ Open **Configuration → Add server** in the monitor.
 - Enter the exact Proxmox node name and HTTPS API URL, e.g. `https://pve.example.net:8006`.
 - **Token ID:** `hostmonitor@pve!dashboard`
 - **Token secret:** the generated token secret
-- **Trusted CA file:** leave blank for a publicly trusted certificate matching the API URL. For a private CA/node certificate, its verified trust file must first be installed on the monitor machine; enter that file's absolute path. The website does not upload certificates. See the [certificate guidance](README.md#add-a-proxmox-connection).
+- **Certificate trust:** choose **Publicly trusted certificate** for a public CA matching the API URL, or **Upload trusted CA** and select the cluster's verified public CA PEM file.
+- For a default/private node certificate, click **Inspect server certificate**. Compare the SHA-256 fingerprint with a trusted source (for example the administrator over a verified SSH connection), then tick **I verified this fingerprint and trust this certificate**. Never approve solely because the monitor displayed it.
 
-Click **Save server**, then select it in the sidebar to fetch stats. Saving only stores the connection; selection performs the API reads.
+Click **Test connection**. It checks TLS, node status, storage, network and guest-list access. Correct any errors, then **Save server**. Saving repeats verification when the connection or trust changed, stores trust automatically, and never changes Proxmox. Inspection sends no API credentials; test and save send them only over verified TLS.
+
+When editing an existing server, **Keep saved trust** reuses its current certificate configuration. CA certificates and approved node certificates are stored privately on the monitor. Approval expires after ten minutes; inspect again if needed. An approved node certificate that renews or changes needs fresh approval. Hostname/IP mismatch and expiry still block access.
 
 For another node in the same cluster, reuse the token but enter that node's own name, API URL and appropriate certificate trust. For another cluster or standalone host, repeat steps 1–5 there.
 

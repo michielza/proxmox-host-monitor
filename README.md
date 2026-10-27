@@ -81,9 +81,20 @@ The client supports only these GET endpoints:
 /cluster/resources
 ```
 
-TLS verification is always on. For a private Proxmox CA, copy the trusted CA certificate to a service-readable file outside the checkout and enter its absolute path. That path is visible to shared-key administrators so they can edit it; certificate contents and token secrets are not returned. Redirects are rejected. Proxy and netrc environment settings are ignored to keep credential routing explicit. Changing a stored token's API URL or ID requires re-entering its secret.
+TLS verification is always on. Configuration offers four trust choices:
 
-The live test encountered an older cluster CA without the key-usage extension required by current Python TLS defaults. On the tested Python 3.14 runtime, trusting the exact node certificate obtained over an independently verified SSH connection worked with certificate, expiry and IP-identity checks still enabled. This narrower trust requires refreshing the trust file when the node certificate renews. Do not disable verification or alter the cluster CA merely to connect the monitor.
+- **Keep saved trust** retains an existing server's trust configuration.
+- **Publicly trusted certificate** uses the monitor's standard certificate authorities.
+- **Upload trusted CA** accepts a PEM CA file (up to 32 KiB), stored privately beside the runtime configuration and reused automatically.
+- **Approve this server certificate** retrieves the certificate without sending HTTP requests or API credentials. Compare its SHA-256 fingerprint through an independent trusted source, then tick explicit approval. Inspection alone does not prove identity.
+
+**Test connection** checks TLS and all four read-only API endpoints without saving. New servers and changes to connection credentials or trust must pass these checks when saved. Label and grouping edits retain saved trust and can be made while the host is offline. No Proxmox settings are changed.
+
+Certificate approvals expire after ten minutes and are bound to the API URL and authenticated browser session. Uploaded or approved trust is saved only after verified API checks pass. The backend chooses certificate paths; no manual file installation is needed. Existing configured trust files continue working.
+
+Approving an exact node certificate permits it as a trust anchor while retaining hostname/IP and validity checks. A changed or renewed node certificate requires a new inspection and explicit approval. A valid issuing CA generally survives normal leaf renewal. Some older cluster CAs lack extensions required by modern TLS; approving a verified node certificate is an alternative without changing the cluster CA or disabling verification.
+
+Redirects are rejected. Proxy and netrc environment settings are ignored to keep credential routing explicit. Changing a stored token's API URL or ID requires re-entering its secret.
 
 The application sets HSTS for its own hostname only. It deliberately does not impose HTTPS policy on other subdomains, which may host unrelated services. Any wider HSTS policy belongs to the operator's reverse-proxy configuration.
 

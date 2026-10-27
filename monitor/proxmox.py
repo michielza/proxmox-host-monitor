@@ -3,14 +3,29 @@ from concurrent.futures import ThreadPoolExecutor
 import math
 import re
 import subprocess
+import ssl
 import time
 from urllib.parse import quote, urlsplit
 
 import requests
+from requests.adapters import HTTPAdapter
+from urllib3.util.ssl_ import create_urllib3_context
 
 
 class APIError(Exception):
-    pass
+    def __init__(self, message, kind="api_error"):
+        super().__init__(message)
+        self.kind = kind
+
+
+class CertificateAdapter(HTTPAdapter):
+    def init_poolmanager(self, *args, **kwargs):
+        context = create_urllib3_context()
+        # Permit an explicitly approved leaf as trust anchor on Python 3.11+.
+        # Certificate/expiry/hostname verification remain required.
+        context.verify_flags |= ssl.VERIFY_X509_PARTIAL_CHAIN
+        kwargs["ssl_context"] = context
+        return super().init_poolmanager(*args, **kwargs)
 
 
 def get(host, endpoint):
@@ -22,6 +37,8 @@ def get(host, endpoint):
     # Ignore proxy/netrc environment so they cannot alter credential routing.
     with requests.Session() as client:
         client.trust_env = False
+        if host.get("ca_file"):
+            client.mount("https://", CertificateAdapter())
         try:
             response = client.get(
                 host["url"] + "/api2/json" + endpoint,
@@ -34,7 +51,7 @@ def get(host, endpoint):
                 raise APIError(f"API returned HTTP {response.status_code}.")
             return response.json()["data"]
         except requests.exceptions.SSLError:
-            raise APIError("Certificate verification failed. Configure a trusted CA file.") from None
+            raise APIError("Certificate verification failed. Check certificate trust in Configuration.", "tls_error") from None
         except requests.exceptions.Timeout:
             raise APIError("API request timed out.") from None
         except requests.exceptions.RequestException:
@@ -63,7 +80,7 @@ def collect(host):
     endpoints = {"status": f"/nodes/{node}/status", "storage": f"/nodes/{node}/storage",
                  "network": f"/nodes/{node}/network", "guests": "/cluster/resources"}
     # Independent reads keep a slow optional metric from hiding CPU/RAM.
-    errors, data = {}, {}
+    errors, data, failures = {}, {}, {}
     with ThreadPoolExecutor(max_workers=5) as pool:
         jobs = {k: pool.submit(get, host, endpoint) for k, endpoint in endpoints.items()}
         echo = pool.submit(ping, host)
@@ -72,9 +89,10 @@ def collect(host):
                 data[key] = job.result()
             except APIError as exc:
                 errors[key] = str(exc)
+                failures[key] = exc
         latency = echo.result()
     if "status" not in data:
-        raise APIError(errors["status"])
+        raise failures["status"]
     status = data["status"]
     memory = status.get("memory", {})
     cpu = status.get("cpuinfo", {})

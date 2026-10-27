@@ -26,13 +26,8 @@ def text(value, name, limit=160):
     return value.strip()
 
 
-def validate_host(data, previous=None):
-    if not isinstance(data, dict):
-        raise ValueError("A server object is required.")
-    host = {k: text(data.get(k), k) for k in ("id", "name", "provider", "location", "node")}
-    if not ID.fullmatch(host["id"]) or not NODE.fullmatch(host["node"]):
-        raise ValueError("Invalid server ID or Proxmox node name.")
-    url = text(data.get("url"), "API URL", 500).rstrip("/")
+def validate_origin(value):
+    url = text(value, "API URL", 500).rstrip("/")
     parsed = urlsplit(url)
     if (parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password
             or parsed.path or parsed.query or parsed.fragment):
@@ -41,6 +36,16 @@ def validate_host(data, previous=None):
         parsed.port
     except ValueError:
         raise ValueError("Invalid API port.") from None
+    return url
+
+
+def validate_host(data, previous=None):
+    if not isinstance(data, dict):
+        raise ValueError("A server object is required.")
+    host = {k: text(data.get(k), k) for k in ("id", "name", "provider", "location", "node")}
+    if not ID.fullmatch(host["id"]) or not NODE.fullmatch(host["node"]):
+        raise ValueError("Invalid server ID or Proxmox node name.")
+    url = validate_origin(data.get("url"))
     host["url"] = url
     token_id = text(data.get("token_id"), "Token ID", 250)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+@[A-Za-z0-9_.-]+![A-Za-z0-9_.-]+", token_id):
