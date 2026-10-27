@@ -70,3 +70,13 @@ Reika approved the feature with two low-priority and four informational findings
 - F6: retained operator-controlled cleanup of old certificate files; no automatic deletion added.
 
 Three additional regression tests cover the shared throttle, global limit across sessions and leaf-specific errors. The resulting suite has 36 tests. No changes to approval binding, trust verification or credential routing were made after independent review.
+## Ping reporting fix
+
+The original ping helper passed Linux arguments to the Windows preview and attempted to launch a capability-bearing ping executable inside a service with an empty capability bounding set. Both errors became a null latency and the misleading text "No response".
+
+The replacement uses unprivileged ICMP datagram sockets through pinned icmplib on Unix, and the system ping executable with Windows-specific arguments and a numeric destination on Windows. It never uses a shell, grants raw-socket capabilities, changes sysctls, or installs a privileged helper. Kernel permission restrictions produce an explicit local error. Probe errors are separate from API errors so CPU/RAM/storage collection and connection validation remain usable without ICMP.
+
+Windows verification: 42 tests ran, with the POSIX file-permission test and real Linux ICMP integration test skipped. A real configured host also produced RTTs on the development status page. Tests cover one unprivileged echo, no executable on Linux, timeout versus local permission/lookup/execution errors, Windows arguments and localized RTT formats, numeric destination handling, and partial metric preservation. Reika independently approved PR #3 with no blockers and four informational findings. Her fresh Windows run passed 40 tests with two platform skips, and her Linux run passed all 42 tests, including real unprivileged IPv4/IPv6 loopback ICMP. She also checked real Windows probes to loopback, a resolved hostname and an unanswered test address. Final verification inside the deployed service sandbox is a deployment check.
+
+
+PR #3 finding disposition: F1 (additional RTT locales), F3 (first-address dual-stack selection) and F4 (legacy Windows exit codes) are accepted compatibility limits and documented in README. F2 is addressed with the dependency license notice and upstream license link. No runtime code changed after independent review.

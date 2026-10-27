@@ -105,6 +105,7 @@ function selectHost(host) {
   $("cpu-bar").value = 0; $("ram-bar").value = 0;
   $("updated").textContent = "Waiting for first sample";
   $("connection").className = ""; $("connection").textContent = "Connecting…";
+  $("ping-note").textContent = "Waiting for an ICMP sample from the monitor.";
   drawGraphs(); renderTree(); sample();
 }
 function percent(used, total) { return num(used) && num(total) && total > 0 ? Math.max(0, Math.min(100, used / total * 100)) : null; }
@@ -151,7 +152,8 @@ function renderStats(data) {
     $("network-ports").append(line);
   }
   if (!ports.length) $("network-ports").textContent = data.errors.network ? "Interface data unavailable" : "No physical ports reported";
-  $("ping-value").textContent = num(data.ping_ms) ? `${fmt(data.ping_ms)} ms` : "No response";
+  $("ping-value").textContent = num(data.ping_ms) ? `${fmt(data.ping_ms)} ms` : data.ping_error ? "Unavailable" : "No reply";
+  $("ping-note").textContent = data.ping_error || (num(data.ping_ms) ? "ICMP round-trip time from the machine running this monitor." : "No ICMP echo reply. The host may be unreachable or ICMP may be filtered.");
   $("version").textContent = data.version || "Proxmox VE";
   $("updated").textContent = `Updated ${new Date(data.sampled_at * 1000).toLocaleTimeString()}`;
   $("connection").textContent = data.demo ? "● Demo · fictional data" : "● Connected";
