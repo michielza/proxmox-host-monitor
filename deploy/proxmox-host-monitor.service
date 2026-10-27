@@ -1,0 +1,27 @@
+[Unit]
+Description=Proxmox Host Monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=phm
+Group=phm
+WorkingDirectory=/opt/proxmox-host-monitor
+Environment=PHM_CONFIG=/var/lib/proxmox-host-monitor/config.json
+# Development via SSH tunnel only. Remove this for an HTTPS reverse proxy.
+Environment=PHM_LOCAL_HTTP=1
+ExecStart=/opt/proxmox-host-monitor/.venv/bin/python -m gunicorn --workers 1 --threads 8 --bind 127.0.0.1:8080 --timeout 30 wsgi:app
+Restart=on-failure
+RestartSec=3
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/proxmox-host-monitor
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+
+[Install]
+WantedBy=multi-user.target
