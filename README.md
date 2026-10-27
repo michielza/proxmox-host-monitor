@@ -66,9 +66,11 @@ Reload the browser afterward to refresh the server list.
 
 ## Add a Proxmox connection
 
+Start with the [step-by-step Proxmox user, role and token setup](PROXMOX-SETUP.md). It lists the exact menu choices, the three privileges to select, and the separate permission entries required for the user and token.
+
 Open Configuration and supply an HTTPS API origin, the exact Proxmox node name, a token ID (`user@realm!token`), and its secret. Token secrets are write-only in the UI and never returned by the host-list endpoint. Saving configuration does not test or modify Proxmox; select the server to fetch stats.
 
-Use a dedicated monitoring user and a privilege-separated token. Both need the relevant read permissions. `PVEAuditor` is a convenient built-in read-only role; tighter ACLs can restrict visibility. Check the permissions for your version in the [Proxmox API viewer](https://pve.proxmox.com/pve-docs/api-viewer/) and [user-management documentation](https://pve.proxmox.com/pve-docs/chapter-pveum.html).
+Use a dedicated monitoring user and a privilege-separated token. Assign the custom `HostMonitorAudit` role containing `Sys.Audit`, `VM.Audit` and `Datastore.Audit` to both the user and token, as shown in the setup guide. Check the permissions for your version in the [Proxmox API viewer](https://pve.proxmox.com/pve-docs/api-viewer/) and [user-management documentation](https://pve.proxmox.com/pve-docs/chapter-pveum.html).
 
 The client supports only these GET endpoints:
 
