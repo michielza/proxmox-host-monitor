@@ -139,3 +139,7 @@ Windows uses the system ping executable with Windows arguments, a numeric destin
 The page distinguishes **No reply** (no successful ICMP echo reply) from **Unavailable** (a local lookup, permission or probe execution error). Ping failure does not prevent CPU, RAM or storage reads or block connection saving. ICMP success does not establish API health, and a missing reply does not prove the host is offline.
 
 Windows compatibility limits: RTT unit names outside `ms`/`毫秒` may be reported as unavailable. For dual-stack hostnames the first resolved address is selected, which may differ from the API connection. Older Windows versions may classify some local failures as exit code 1 (shown as no reply). These limits do not affect the Linux deployment.
+
+## Public HTTPS deployment
+
+[HTTPS-SETUP.md](HTTPS-SETUP.md) describes a reviewed rollout of nginx, a browser-trusted IP certificate and automatic renewal. Templates are under `deploy/`. They require customization, independent review and live validation before installation; they do not change the application or deploy themselves.

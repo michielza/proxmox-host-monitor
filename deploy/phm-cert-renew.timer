@@ -1,0 +1,11 @@
+[Unit]
+Description=Check the Proxmox Host Monitor certificate hourly
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=10min
+Persistent=true
+Unit=phm-cert-renew.service
+
+[Install]
+WantedBy=timers.target
