@@ -7,6 +7,7 @@ let certificateGeneration = 0;
 let caPem = "";
 const num = value => typeof value === "number" && Number.isFinite(value);
 const fmt = value => num(value) ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 1}).format(value) : "—";
+const hostNameOrder = new Intl.Collator(undefined, {numeric: true, sensitivity: "base"});
 function bytes(value) {
   if (!num(value) || value < 0) return "—";
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
@@ -72,7 +73,7 @@ function renderTree() {
     for (const [location, hosts] of locations) {
       const branch = node("details"); branch.open = true;
       branch.append(node("summary", location));
-      for (const host of hosts) {
+      for (const host of hosts.sort((a, b) => hostNameOrder.compare(a.name, b.name))) {
         const button = node("button", undefined, `server-button${state.selected?.id === host.id ? " active" : ""}`);
         button.append(node("span", "", "dot"), node("span", host.name));
         if (state.selected?.id === host.id) button.setAttribute("aria-current", "page");
