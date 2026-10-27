@@ -37,6 +37,32 @@ def create_app(config_path=None):
     trust = CertificateTrust(store, config["session_secret"])
     attempts = defaultdict(deque)
     attempt_lock = threading.Lock()
+    connection_attempts = defaultdict(deque)
+
+    def connection_limit():
+        # Shared by inspection, testing and saves that trigger network checks.
+        # This bounds bursts; key holders remain trusted monitor administrators.
+        now = time.monotonic()
+        with attempt_lock:
+            for bucket in list(connection_attempts):
+                while connection_attempts[bucket] and connection_attempts[bucket][0] <= now - 60:
+                    connection_attempts[bucket].popleft()
+                if not connection_attempts[bucket]:
+                    del connection_attempts[bucket]
+            buckets = (("session", session["csrf"]), ("global", ""))
+            if any(len(connection_attempts[bucket]) >= limit for bucket, limit in zip(buckets, (12, 60))):
+                response = jsonify(error="Too many connection checks. Try again in one minute.")
+                response.headers["Retry-After"] = "60"
+                return response, 429
+            for bucket in buckets:
+                connection_attempts[bucket].append(now)
+
+    def connection_limited(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            limited = connection_limit()
+            return limited if limited is not None else fn(*args, **kwargs)
+        return wrapper
 
     @app.errorhandler(ConfigError)
     def config_unavailable(error):
@@ -183,6 +209,7 @@ def create_app(config_path=None):
 
     @app.post("/api/connection/certificate")
     @protected
+    @connection_limited
     def inspect_certificate():
         data = request.get_json(silent=True)
         try:
@@ -194,6 +221,7 @@ def create_app(config_path=None):
 
     @app.post("/api/connection/test")
     @protected
+    @connection_limited
     def test_connection():
         try:
             host, _, choice = candidate(request.get_json(silent=True))
@@ -212,6 +240,9 @@ def create_app(config_path=None):
         try:
             host, old, choice = candidate(request.get_json(silent=True))
             if connection_changed(host, old, choice):
+                limited = connection_limit()
+                if limited is not None:
+                    return limited
                 verify_connection(host, choice)
         except ValueError as exc:
             return jsonify(error=str(exc)), 400

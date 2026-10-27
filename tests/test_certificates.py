@@ -121,6 +121,42 @@ class CertificateRouteTests(unittest.TestCase):
     setUp = test_monitor.MonitorTests.setUp
     tearDown = test_monitor.MonitorTests.tearDown
     login = test_monitor.MonitorTests.login
+
+    def test_connection_limit_shared_by_inspection_test_and_changed_saves(self):
+        headers = self.login()
+        with patch("monitor.certificates.inspect_peer", return_value=(certificate()[0], {})), \
+                patch("monitor.app.collect", return_value={"errors": {}}) as collector:
+            for i in range(12):
+                endpoint = "/api/connection/certificate" if i % 2 else "/api/connection/test"
+                self.assertEqual(self.client.post(endpoint, json=host(), headers=headers).status_code, 200)
+            calls = collector.call_count
+            for endpoint in ("/api/connection/certificate", "/api/connection/test", "/api/hosts"):
+                result = self.client.post(endpoint, json=dict(host(), token_secret="changed"), headers=headers)
+                self.assertEqual(result.status_code, 429)
+                self.assertEqual(result.headers["Retry-After"], "60")
+            self.assertEqual(collector.call_count, calls)
+            # Editing labels stays available and does not generate a probe.
+            self.assertEqual(self.client.post("/api/hosts", json=dict(host(), labels={"ram": "ECC"}), headers=headers).status_code, 200)
+            with patch("monitor.app.time.monotonic", return_value=__import__("time").monotonic() + 61):
+                self.assertEqual(self.client.post("/api/connection/test", json=host(), headers=headers).status_code, 200)
+
+    def test_connection_limit_global_budget_survives_new_sessions(self):
+        with patch("monitor.app.collect", return_value={"errors": {}}) as collector:
+            for _ in range(5):
+                headers = self.login()
+                for _ in range(12):
+                    self.assertEqual(self.client.post("/api/connection/test", json=host(), headers=headers).status_code, 200)
+            headers = self.login()
+            self.assertEqual(self.client.post("/api/connection/test", json=host(), headers=headers).status_code, 429)
+            self.assertEqual(collector.call_count, 60)
+
+    def test_invalid_leaf_error_is_specific_to_node_certificates(self):
+        headers = self.login()
+        data = self.approval(headers, certificate(expired=True)[0])
+        response = self.client.post("/api/connection/test", json=data, headers=headers)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("server certificate", response.json["error"])
+        self.assertNotIn("CA upload", response.json["error"])
     def test_inspection_requires_auth_and_csrf(self):
         endpoint = "/api/connection/certificate"
         self.assertEqual(self.client.post(endpoint, json={"url": host()["url"]}).status_code, 401)

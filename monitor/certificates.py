@@ -63,7 +63,9 @@ def parse_pem(value, ca_only=False):
             if ca_only and not cert.extensions.get_extension_for_class(x509.BasicConstraints).value.ca:
                 raise ValueError()
     except (ValueError, UnicodeError, x509.ExtensionNotFound):
-        raise ValueError("Invalid or expired certificate. CA uploads must contain valid CA certificates.") from None
+        message = ("CA upload must contain only valid, unexpired CA certificates." if ca_only
+                   else "The server certificate is invalid, expired, or not yet valid. Inspect a valid replacement.")
+        raise ValueError(message) from None
     return "".join(cert.public_bytes(serialization.Encoding.PEM).decode("ascii") for cert in certs)
 
 
@@ -96,10 +98,10 @@ class CertificateTrust:
                 payload = self.signer.loads(data.get("certificate_ticket", ""), max_age=600)
                 if payload["url"] != host["url"] or payload["csrf"] != csrf:
                     raise ValueError()
-                pem = parse_pem(payload["pem"])
+                pem = payload["pem"]
             except (BadData, KeyError, TypeError, ValueError):
                 raise ValueError("Certificate approval expired or belongs to another connection. Inspect it again.") from None
-            return {"mode": mode, "path": "", "pem": pem}
+            return {"mode": mode, "path": "", "pem": parse_pem(pem)}
         raise ValueError("Choose saved trust, public trust, a CA upload, or an approved node certificate.")
 
     @contextmanager
