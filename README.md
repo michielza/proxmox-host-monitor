@@ -17,7 +17,9 @@ Only the selected server is sampled, ten seconds after the previous request comp
 
 ## Development status
 
-Initial implementation, ready for independent code review. Real-host compatibility has not yet been verified. Demo data is explicitly fictional and does not contact any host. It is optional and must be enabled at initialization.
+Initial implementation and independent follow-up review complete. Live read-only compatibility has been verified with **Proxmox VE 9.2.11** from **Linux/Python 3.14**, covering node status, storage, network interfaces and cluster resources through a dedicated token with only `Sys.Audit`, `VM.Audit` and `Datastore.Audit`. The authenticated dashboard displayed the resulting CPU, memory, storage, guest counts and ping successfully. Other PVE versions and storage backends still need testing.
+
+Demo data is explicitly fictional and does not contact any host. It is optional and must be enabled at initialization.
 
 The standard interface endpoint does not supply physical link speed or traffic counters suitable for this implementation. These values are intentionally unavailable rather than estimated or replaced with VM traffic totals. ICMP failure does not mean the API is down. All counts and storage entries reflect the monitoring token's visibility.
 
@@ -78,6 +80,8 @@ The client supports only these GET endpoints:
 ```
 
 TLS verification is always on. For a private Proxmox CA, copy the trusted CA certificate to a service-readable file outside the checkout and enter its absolute path. That path is visible to shared-key administrators so they can edit it; certificate contents and token secrets are not returned. Redirects are rejected. Proxy and netrc environment settings are ignored to keep credential routing explicit. Changing a stored token's API URL or ID requires re-entering its secret.
+
+The live test encountered an older cluster CA without the key-usage extension required by current Python TLS defaults. On the tested Python 3.14 runtime, trusting the exact node certificate obtained over an independently verified SSH connection worked with certificate, expiry and IP-identity checks still enabled. This narrower trust requires refreshing the trust file when the node certificate renews. Do not disable verification or alter the cluster CA merely to connect the monitor.
 
 The application sets HSTS for its own hostname only. It deliberately does not impose HTTPS policy on other subdomains, which may host unrelated services. Any wider HSTS policy belongs to the operator's reverse-proxy configuration.
 

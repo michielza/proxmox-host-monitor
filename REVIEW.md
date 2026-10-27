@@ -14,7 +14,7 @@ Review the initial implementation before adding real host credentials or exposin
 
 ## Current limits
 
-- No live Proxmox compatibility test has been performed yet; API mocks and explicit demo data are not a substitute.
+- Live compatibility has been checked on PVE 9.2.11 from Linux/Python 3.14, including all four allowlisted endpoints and the authenticated dashboard. This does not establish compatibility with every PVE version or storage backend.
 - Counts include only token-visible guests; templates are excluded. Storage rows can share underlying capacity.
 - Physical link speed and network throughput are unavailable in this build. No historical Proxmox RRD endpoint is used.
 - No separate settings administrator: possession of the shared key grants monitor configuration access.
@@ -37,4 +37,13 @@ Return actionable findings with severity, file/line, reproduction and a suggeste
 - **F9:** Additional checks cover session restore/logout, host-count and label limits, ping parsing, runtime config recovery, IPv6 matching, CLI behaviour and cross-process writes.
 - **F10 — retained intentionally:** Static assets keep `no-store` at this scale to avoid stale client code during early development. No caching/versioning machinery is added.
 
-Re-review the locking transaction boundaries and the follow-up regressions before connecting real hosts. Live-host compatibility remains unverified.
+Independent re-review accepted the transaction boundaries and follow-up regressions. All 23 tests passed on Linux; Windows had 22 passes and one intentional POSIX-permissions skip.
+
+## Live compatibility check
+
+- PVE 9.2.11; monitor on Linux/Python 3.14.
+- Dedicated privilege-separated token with exactly `Sys.Audit`, `VM.Audit` and `Datastore.Audit`.
+- Node status, storage, network and cluster-resource endpoints returned data without parser errors.
+- CPU model/topology, RAM, individual dir/lvmthin/pbs storage entries, guest counts and ICMP ping displayed in the authenticated dashboard.
+- Modern TLS defaults rejected the older cluster CA's missing key-usage extension. Exact-node certificate trust, bootstrapped through verified SSH, passed without disabling verification or changing production certificates. Renewal requires refreshing that trust file.
+- Real identities, addresses, token material, CA files and screenshots remain outside the public source tree. No real-host fixture or metrics history was committed.
