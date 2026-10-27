@@ -2,7 +2,7 @@
 
 This deployment keeps Gunicorn on `127.0.0.1:8080` and puts nginx on public TCP 80/443. The existing shared access key still protects the application. No DNS record is required. All addresses below are documentation examples; substitute the deployment's actual public IPv4 address outside the repository.
 
-**Status:** configuration prepared for independent review. Development checks passed using nginx 1.28.3 and loopback-only test listeners: syntax, verified test TLS, redirects, ACME path handling, secure cookies, authenticated access, spoofed scheme headers and cross-origin rejection. No public certificate was requested. Production nginx checks, public ACME validation and renewal dry-run are still required before activation. Do not treat these templates as an already deployed public service.
+**Status:** independently reviewed and approved with documented findings. Development checks passed using nginx 1.28.3 and loopback-only test listeners: syntax, verified test TLS, redirects, ACME path handling, secure cookies, authenticated access, spoofed scheme headers and cross-origin rejection. No public certificate was requested. Production nginx checks, public ACME validation and renewal dry-run are still required before activation. Do not treat these templates as an already deployed public service.
 
 ## Preflight and recovery
 
@@ -29,7 +29,7 @@ Place a random test file under `.well-known/acme-challenge/` and retrieve it fro
 
 ## Validate issuance, then obtain the trusted certificate
 
-Review the Let's Encrypt Subscriber Agreement before accepting it. Certificate issuance publishes the IP address in public certificate-transparency records. The following commands omit a contact email rather than guessing one; provide an operator-approved email instead if desired.
+Use the installed client's `certbot --help all` to confirm `--ip-address`, `--preferred-profile` and webroot support before issuance. Review the Let's Encrypt Subscriber Agreement before accepting it. Certificate issuance publishes the IP address in public certificate-transparency records. The following commands omit a contact email rather than guessing one; provide an operator-approved email instead if desired.
 
 First perform a staging validation without saving an untrusted certificate as the production lineage:
 
@@ -92,7 +92,11 @@ sudo systemctl status phm-cert-renew.timer --no-pager
 sudo journalctl -u phm-cert-renew.service -n 30 --no-pager
 ```
 
-Confirm that nginx still presents the trusted production certificate after the dry-run and that the next timer event is scheduled. Failed renewal attempts stay visible in the service journal; there is no external alerting integration in this setup.
+Confirm that nginx still presents the trusted production certificate after the dry-run and that the next timer event is scheduled. Failed renewal attempts stay visible in the service journal; there is no external alerting integration in this setup. Check the renewal service journal and certificate expiry at least daily until independent expiry monitoring is in place. Registering a contact email does not provide expiry reminders: [Let's Encrypt ended that service in 2025](https://letsencrypt.org/docs/expiration-emails/). Hourly retries do not replace monitoring.
+
+Browsers do not apply HSTS to IP-literal hosts. Open/bookmark the HTTPS URL directly: the HTTP redirect is a convenience and cannot protect an initial HTTP request against an active downgrade attacker. A DNS hostname is needed to gain HSTS protection.
+
+These templates listen on IPv4 only. Do not publish an AAAA record or add an IPv6 listener until the certificate covers that IPv6 address (or a validated DNS hostname).
 
 When a DNS name becomes available, issue a certificate for that name and update nginx's server name, fixed redirect and forwarded Host together. Keep the working IP endpoint until the replacement is verified.
 
