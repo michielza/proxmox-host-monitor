@@ -1,6 +1,6 @@
-# Initial review checkpoint
+# Review record and current limits
 
-Review the initial implementation before adding real host credentials or exposing it through a public reverse proxy.
+Independent reviews and deployment verification are recorded below. The priority areas remain a checklist for future changes. Initial checkpoint details are retained as history; later follow-ups describe the current implementation.
 
 ## Priority areas
 
@@ -19,8 +19,8 @@ Review the initial implementation before adding real host credentials or exposin
 - Physical link speed and network throughput are unavailable in this build. No historical Proxmox RRD endpoint is used.
 - No separate settings administrator: possession of the shared key grants monitor configuration access.
 - One Gunicorn worker is required for the in-memory throttle. Config transactions also use a sidecar file lock across processes. Rate limits reset on restart and are shared by clients behind the same proxy address.
-- No TLS provisioning, public reverse proxy, background fleet collector or database is included.
-- Ping is Linux/iputils-specific and may be blocked even when API access works.
+- Reviewed nginx and IP-certificate issuance/renewal templates are included; deployment requires operator configuration and validation. No background fleet collector or database is included.
+- Linux uses unprivileged icmplib probes; Windows uses its system ping executable. OS permissions or ICMP filtering can prevent ping even when API access works. Windows locale and dual-stack selection limits are documented in README.
 
 Return actionable findings with severity, file/line, reproduction and a suggested correction. Do not insert real host details or credentials into review comments or test fixtures.
 
@@ -30,7 +30,7 @@ Return actionable findings with severity, file/line, reproduction and a suggeste
 - **F2:** Missing, invalid or structurally malformed config at runtime returns a generic API 503 without private paths. Restoring the valid file permits requests again. Invalid config at startup still fails fast.
 - **F3:** The POSIX mode assertion is a separate, platform-specific test; validation tests continue on Windows. Filesystem permission guarantees remain Linux/POSIX-specific; Windows relies on ACLs. A Windows byte-range lock supports local review tests.
 - **F4:** Local HTTP uses parsed hostname matching, including IPv6 loopback, while rejecting lookalike hostnames and non-loopback addresses.
-- **F5 — retained intentionally:** All shared-key holders are monitor administrators. The CA file path is an editable setting with UI value, so it remains visible after authentication. Certificate contents and API secrets remain private; no separate lower-privilege viewer role is being introduced.
+- **F5 — initial disposition, superseded by certificate onboarding:** All shared-key holders remain monitor administrators. The original editable CA path was replaced by certificate trust choices and upload/approval; the backend now chooses certificate paths. Existing saved paths remain usable and visible after authentication. Certificate contents and API secrets remain private; no separate lower-privilege viewer role is introduced.
 - **F6:** After three consecutive failures, retries slow to 30 seconds. Success resets to 10 seconds; manual refresh and visibility return try immediately. No background collector is added.
 - **F7 — retained intentionally:** HSTS remains scoped to this hostname. Automatically applying includeSubDomains could change policy for unrelated subdomains; broader policy belongs to the deployment operator.
 - **F8:** `disable-demo` is available without a key prompt. Missing config produces a friendly CLI error; initialization also checks for concurrent creation inside the transaction.
@@ -45,7 +45,7 @@ Independent re-review accepted the transaction boundaries and follow-up regressi
 - Dedicated privilege-separated token with exactly `Sys.Audit`, `VM.Audit` and `Datastore.Audit`.
 - Node status, storage, network and cluster-resource endpoints returned data without parser errors.
 - CPU model/topology, RAM, individual dir/lvmthin/pbs storage entries, guest counts and ICMP ping displayed in the authenticated dashboard.
-- Modern TLS defaults rejected the older cluster CA's missing key-usage extension. Exact-node certificate trust, bootstrapped through verified SSH, passed without disabling verification or changing production certificates. Renewal requires refreshing that trust file.
+- Modern TLS defaults rejected the older cluster CA's missing key-usage extension. Exact-node certificate trust, bootstrapped through verified SSH, passed without disabling verification or changing production certificates. Renewal requires fresh inspection and explicit approval of the changed node certificate.
 - Real identities, addresses, token material, CA files and screenshots remain outside the public source tree. No real-host fixture or metrics history was committed.
 ## Certificate onboarding review checkpoint
 
@@ -55,7 +55,7 @@ New or changed connections must pass all four read-only endpoint checks before s
 
 Review focus: approval binding and replay limits, credential handling before TLS verification, CA versus exact-leaf trust, concurrent edits during connection tests, and certificate renewal behavior. The browser must never auto-approve a fingerprint merely because inspection succeeded. The signed approval contains the public certificate, not API credentials.
 
-Validation: 33 automated tests on Linux/Python 3.14; Windows/Python 3.13 runs the same suite with the POSIX permission test skipped. Generated loopback TLS servers cover CA chains, approved leaf trust, rejection of wrong identity, expiry and changed certificates, and absence of HTTP/API credentials during inspection or failed verification. Browser testing covers rejection, inspection, approval, test, save, reload and reuse. Existing configured hosts were checked read-only with unchanged private configuration. Independent review remains pending before merging this feature.
+Validation: 33 automated tests on Linux/Python 3.14; Windows/Python 3.13 runs the same suite with the POSIX permission test skipped. Generated loopback TLS servers cover CA chains, approved leaf trust, rejection of wrong identity, expiry and changed certificates, and absence of HTTP/API credentials during inspection or failed verification. Browser testing covers rejection, inspection, approval, test, save, reload and reuse. Existing configured hosts were checked read-only with unchanged private configuration. The independent review and follow-up disposition are recorded in the next section; the feature was merged and deployed through PR #2.
 
 
 ## PR 2 independent review follow-up
@@ -76,7 +76,7 @@ The original ping helper passed Linux arguments to the Windows preview and attem
 
 The replacement uses unprivileged ICMP datagram sockets through pinned icmplib on Unix, and the system ping executable with Windows-specific arguments and a numeric destination on Windows. It never uses a shell, grants raw-socket capabilities, changes sysctls, or installs a privileged helper. Kernel permission restrictions produce an explicit local error. Probe errors are separate from API errors so CPU/RAM/storage collection and connection validation remain usable without ICMP.
 
-Windows verification: 42 tests ran, with the POSIX file-permission test and real Linux ICMP integration test skipped. A real configured host also produced RTTs on the development status page. Tests cover one unprivileged echo, no executable on Linux, timeout versus local permission/lookup/execution errors, Windows arguments and localized RTT formats, numeric destination handling, and partial metric preservation. Reika independently approved PR #3 with no blockers and four informational findings. Her fresh Windows run passed 40 tests with two platform skips, and her Linux run passed all 42 tests, including real unprivileged IPv4/IPv6 loopback ICMP. She also checked real Windows probes to loopback, a resolved hostname and an unanswered test address. Final verification inside the deployed service sandbox is a deployment check.
+Windows verification: 42 tests ran, with the POSIX file-permission test and real Linux ICMP integration test skipped. A real configured host also produced RTTs on the development status page. Tests cover one unprivileged echo, no executable on Linux, timeout versus local permission/lookup/execution errors, Windows arguments and localized RTT formats, numeric destination handling, and partial metric preservation. Reika independently approved PR #3 with no blockers and four informational findings. Her fresh Windows run passed 40 tests with two platform skips, and her Linux run passed all 42 tests, including real unprivileged IPv4/IPv6 loopback ICMP. She also checked real Windows probes to loopback, a resolved hostname and an unanswered test address. Subsequent deployment verification confirmed live ICMP through the hardened production service, with the private configuration and base service unit unchanged.
 
 
 PR #3 finding disposition: F1 (additional RTT locales), F3 (first-address dual-stack selection) and F4 (legacy Windows exit codes) are accepted compatibility limits and documented in README. F2 is addressed with the dependency license notice and upstream license link. No runtime code changed after independent review.
@@ -89,14 +89,22 @@ Certbot 5.8.0 uses an isolated virtual environment because older distribution cl
 
 Development evidence: an extracted distribution nginx 1.28.3 binary passed configuration validation. Loopback-only integration checked verified test TLS with a generated local CA, fixed redirects, GET-only challenge handling, bootstrap isolation, rejection of direct plaintext app requests, Secure/HttpOnly/SameSite cookies, an authenticated host-list read, spoofed alternate scheme headers, and cross-origin rejection. The separate test app retained production's service restrictions, including PrivateTmp. Temporary units were stopped afterward; checksums confirmed that the production unit and private configuration stayed unchanged. Renewal unit syntax was also checked. No public listeners or ACME accounts were created for these checks.
 
-Independent review focus: bootstrap-to-HTTPS ordering and rollback, fixed authority/redirect behavior, scheme-header trust, cookie and origin handling, certificate issuance/renewal commands, and timer/hook reliability. Login throttling currently shares nginx's loopback address; no client-IP middleware is introduced. Independent review and the real public issuance/renewal tests are pending before deployment.
+Independent review focus: bootstrap-to-HTTPS ordering and rollback, fixed authority/redirect behavior, scheme-header trust, cookie and origin handling, certificate issuance/renewal commands, and timer/hook reliability. Login throttling currently shares nginx's loopback address; no client-IP middleware is introduced. The independent review and completed public issuance/renewal checks are recorded in the following sections.
 
 ## PR 4 independent review follow-up
 
-Reika approved the configuration-only proposal with one low and four informational findings. F1 is addressed by documenting that HSTS does not apply to IP literals and that the HTTPS URL should be used directly; an HTTP redirect is not downgrade protection for an initial insecure request. F2's operational concern is accepted with daily journal/expiry checks until independent monitoring exists. Its suggested expiry-email remedy is corrected: Let's Encrypt stopped expiry notification emails in 2025, so registration does not restore them. F3 documents IPv4-only listeners and coordinated future IPv6/DNS rollout. F4 is an explicit installed-binary option check before issuance. F5 retains the existing 64 KiB body limit. No proxy or application runtime behavior changed after independent review. Public ACME validation, issuance, renewal-hook testing and final activation remain deployment checks.
+Reika approved the configuration-only proposal with one low and four informational findings. F1 is addressed by documenting that HSTS does not apply to IP literals and that the HTTPS URL should be used directly; an HTTP redirect is not downgrade protection for an initial insecure request. F2's operational concern is accepted with daily journal/expiry checks until independent monitoring exists. Its suggested expiry-email remedy is corrected: Let's Encrypt stopped expiry notification emails in 2025, so registration does not restore them. F3 documents IPv4-only listeners and coordinated future IPv6/DNS rollout. F4 is an explicit installed-binary option check before issuance. F5 retains the existing 64 KiB body limit. No proxy or application runtime behavior changed after independent review. Public ACME validation, issuance, renewal-hook testing and final activation were subsequently completed as recorded below.
 
 ## HTTPS deployment verification
 
 The reference rollout completed staging validation, production IP certificate issuance, ordinary external TLS verification, secure-cookie/authenticated API checks, scheme-header and origin checks, a rollback rehearsal, and a successful renewal dry-run including the nginx reload hook. Hourly renewal checks were enabled. Checksums confirmed that private host configuration and the base app service unit were unchanged; secure-proxy settings are confined to the reviewed drop-in.
 
 One provisioning correction was needed: creating a deep challenge directory under umask 0077 left its parent directories unreadable to nginx. The guide now explicitly creates every public-webroot ancestor with mode 0755. Private configuration directories remain 0700/0600. No nginx or app runtime behavior changed after independent review. The deployment still has no external expiry-alert integration; the documented daily journal/expiry check applies until monitoring is configured.
+
+## PR 5 host-name sorting review and deployment
+
+Reika independently approved PR #5 at commit `39b9668` with no blocking findings. Her browser collator checks confirmed natural, case-insensitive ordering and stable ordering for equal names. Source review confirmed that sorting changes only temporary location arrays, preserving the saved inventory order and host identity. The author's syntax check and Node DOM harness also covered numeric/mixed-case names, selection, click identity, filtering, empty state and unchanged source inventory.
+
+All three informational notes are accepted: base sensitivity can also ignore accents; the browser's default locale can affect ordering; and initial selection still follows configuration order, so the selected server need not be the first displayed entry. No code changes were required after review.
+
+PR #5 merged as `3293990` and was deployed without restarting the service. HTTPS checks confirmed the login page, the unauthenticated API boundary and an exact byte match between the served JavaScript and the reviewed merged file. Private host configuration and the base service unit were unchanged. The prior revision remains available for rollback.

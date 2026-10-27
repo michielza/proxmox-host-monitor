@@ -4,7 +4,7 @@ A small, self-hosted, read-only Proxmox resource monitor. CPU, RAM and storage f
 
 ## The interface
 
-- Expand **Provider → Location → Server** in the sidebar. Select a server to see its resources.
+- Expand **Provider → Location → Server** in the sidebar. Servers within each location are sorted naturally by name, ignoring case (for example, `host2` before `host10`). Provider and location order stay as configured. Select a server to see its resources.
 - CPU model, sockets, cores, threads and current usage.
 - RAM total, used and available. Older APIs without available memory show free memory separately.
 - Every API-visible Proxmox storage entry, including inactive entries, with its individual capacity. Shared backing disks are never summed.
@@ -25,7 +25,7 @@ The standard interface endpoint does not supply physical link speed or traffic c
 
 ## Run locally on Linux
 
-Requires Python 3.11+ with venv support and an iputils-compatible `ping`. Dependencies install into an isolated environment. The backend uses Flask, requests and Gunicorn; the browser uses plain JavaScript and CSS with no CDN dependencies.
+Requires Python 3.11+ with venv support. Linux ping uses unprivileged ICMP datagram sockets through icmplib; no system ping executable is required. Dependencies install into an isolated environment. The backend uses Flask, requests and Gunicorn; the browser uses plain JavaScript and CSS with no CDN dependencies.
 
 ```sh
 python3 -m venv .venv
@@ -46,7 +46,7 @@ Keys are stored as salted scrypt hashes. Successful entry creates a signed, Http
 
 Configuration updates hold a sidecar file lock across the entire read-modify-write transaction. This serializes web edits and CLI key rotation across processes, preventing lost updates. Hash generation happens before taking the lock. Use local filesystem storage for the private config and run operator commands as its owning service account. The sidecar is part of runtime state and must not be removed while writers are running.
 
-For normal deployment, omit `PHM_LOCAL_HTTP`, keep Gunicorn bound to loopback, and put an HTTPS reverse proxy in front. It must overwrite `X-Forwarded-Proto` with the actual external scheme and preserve the Host header. Gunicorn trusts forwarded scheme headers only from loopback by default. Use a dedicated unprivileged service user; the application does not need sudo. HTTPS/domain deployment is operator-specific and is not automated here.
+For normal deployment, omit `PHM_LOCAL_HTTP`, keep Gunicorn bound to loopback, and put an HTTPS reverse proxy in front. It must overwrite `X-Forwarded-Proto` with the actual external scheme and preserve the Host header. Gunicorn trusts forwarded scheme headers only from loopback by default. Use a dedicated unprivileged service user; the application does not need sudo. The reviewed [HTTPS deployment guide](HTTPS-SETUP.md) includes nginx, IP-certificate issuance and automatic renewal templates; installation and validation remain operator-controlled.
 
 Rotate the access key locally:
 
@@ -68,7 +68,7 @@ Reload the browser afterward to refresh the server list.
 
 Start with the [step-by-step Proxmox user, role and token setup](PROXMOX-SETUP.md). It lists the exact menu choices, the three privileges to select, and the separate permission entries required for the user and token.
 
-Open Configuration and supply an HTTPS API origin, the exact Proxmox node name, a token ID (`user@realm!token`), and its secret. Token secrets are write-only in the UI and never returned by the host-list endpoint. Saving configuration does not test or modify Proxmox; select the server to fetch stats.
+Open Configuration and supply an HTTPS API origin, the exact Proxmox node name, a token ID (`user@realm!token`), and its secret. Token secrets are write-only in the UI and never returned by the host-list endpoint. Saving a new server or changing its connection settings verifies TLS and all four read-only API endpoints before storing the change. Label and grouping edits can be saved while the host is offline. The monitor never modifies Proxmox; select the server to fetch stats.
 
 Use a dedicated monitoring user and a privilege-separated token. Assign the custom `HostMonitorAudit` role containing `Sys.Audit`, `VM.Audit` and `Datastore.Audit` to both the user and token, as shown in the setup guide. Check the permissions for your version in the [Proxmox API viewer](https://pve.proxmox.com/pve-docs/api-viewer/) and [user-management documentation](https://pve.proxmox.com/pve-docs/chapter-pveum.html).
 
@@ -122,7 +122,7 @@ Labels belong to the monitor and never modify Proxmox. Provider, location, serve
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-See [REVIEW.md](REVIEW.md) for the first independent-review checkpoint and known limits. This initial build should remain reachable only through an SSH tunnel until reviewed and configured for HTTPS.
+See [REVIEW.md](REVIEW.md) for independent reviews, deployment verification and known limits. Certificate onboarding, ping reporting, public HTTPS deployment and sidebar host sorting have completed independent review. Keep local HTTP development loopback-only; follow [HTTPS-SETUP.md](HTTPS-SETUP.md) for public deployment.
 
 ## License
 
