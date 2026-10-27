@@ -13,7 +13,7 @@ A small, self-hosted, read-only Proxmox resource monitor. CPU, RAM and storage f
 - Custom labels for the server, CPU, RAM, storage entries and interfaces.
 - A small configuration page for server connections, grouping and labels.
 
-Only the selected server is sampled, ten seconds after the previous request completes, while the monitor page is visible. Configuration and hidden tabs pause sampling. Returning to the page refreshes immediately. CPU, RAM and ping charts hold at most five minutes in browser memory. Switching servers or reloading clears the buffer; failures and pauses create gaps. No background collector or metrics database runs.
+Only the selected server is sampled, ten seconds after the previous request completes, while the monitor page is visible. After three consecutive failed requests, automatic retries slow to thirty seconds; manual Refresh and returning to the page still try immediately. A successful request restores ten-second sampling. Configuration and hidden tabs pause sampling. CPU, RAM and ping charts hold at most five minutes in browser memory. Switching servers or reloading clears the buffer; failures and pauses create gaps. No background collector or metrics database runs.
 
 ## Development status
 
@@ -40,7 +40,9 @@ For a remote development machine, forward its loopback port over SSH and open `h
 
 There is one shared access key. Anyone holding it can view hosts and edit monitor configuration. There are no separate administrator roles.
 
-Keys are stored as salted scrypt hashes. Successful entry creates a signed, HttpOnly, SameSite=Strict session cookie with an eight-hour lifetime. Normal deployment requires HTTPS and Secure cookies. Writes require a session CSRF token, and foreign origins are rejected. Login attempts are rate limited in memory. Use **one Gunicorn worker** so the limit and config write lock are shared by all threads; restarting resets the limit. Add upstream rate limiting before broad exposure.
+Keys are stored as salted scrypt hashes. Successful entry creates a signed, HttpOnly, SameSite=Strict session cookie with an eight-hour lifetime. Normal deployment requires HTTPS and Secure cookies. Writes require a session CSRF token, and foreign origins are rejected. Login attempts are rate limited in memory. Use **one Gunicorn worker** so the rate limit is shared by all threads; restarting resets the limit. Add upstream rate limiting before broad exposure.
+
+Configuration updates hold a sidecar file lock across the entire read-modify-write transaction. This serializes web edits and CLI key rotation across processes, preventing lost updates. Hash generation happens before taking the lock. Use local filesystem storage for the private config and run operator commands as its owning service account. The sidecar is part of runtime state and must not be removed while writers are running.
 
 For normal deployment, omit `PHM_LOCAL_HTTP`, keep Gunicorn bound to loopback, and put an HTTPS reverse proxy in front. It must overwrite `X-Forwarded-Proto` with the actual external scheme and preserve the Host header. Gunicorn trusts forwarded scheme headers only from loopback by default. Use a dedicated unprivileged service user; the application does not need sudo. HTTPS/domain deployment is operator-specific and is not automated here.
 
@@ -50,7 +52,15 @@ Rotate the access key locally:
 .venv/bin/python manage.py rotate-key
 ```
 
-Rotation invalidates existing sessions on their next request. The raw key is never saved. API tokens remain separate from the website key.
+Rotation invalidates existing sessions on their next request. The raw key is never saved. API tokens remain separate from the website key. If the private configuration becomes unreadable while running, the API returns a generic HTTP 503 until the operator repairs it; existing configuration is never silently replaced.
+
+Remove the optional demo server without editing the private config manually:
+
+```sh
+.venv/bin/python manage.py disable-demo
+```
+
+Reload the browser afterward to refresh the server list.
 
 ## Add a Proxmox connection
 
@@ -67,7 +77,9 @@ The client supports only these GET endpoints:
 /cluster/resources
 ```
 
-TLS verification is always on. For a private Proxmox CA, copy the trusted CA certificate to a service-readable file outside the checkout and enter its absolute path. Redirects are rejected. Proxy and netrc environment settings are ignored to keep credential routing explicit. Changing a stored token's API URL or ID requires re-entering its secret.
+TLS verification is always on. For a private Proxmox CA, copy the trusted CA certificate to a service-readable file outside the checkout and enter its absolute path. That path is visible to shared-key administrators so they can edit it; certificate contents and token secrets are not returned. Redirects are rejected. Proxy and netrc environment settings are ignored to keep credential routing explicit. Changing a stored token's API URL or ID requires re-entering its secret.
+
+The application sets HSTS for its own hostname only. It deliberately does not impose HTTPS policy on other subdomains, which may host unrelated services. Any wider HSTS policy belongs to the operator's reverse-proxy configuration.
 
 Use the label editor to choose a component type, enter its storage/interface name when relevant, and write a free-text description. For example, label RAM as `ECC · DDR4` or storage `local-lvm` as `SSD`.
 

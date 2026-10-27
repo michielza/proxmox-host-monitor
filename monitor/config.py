@@ -1,5 +1,6 @@
 """Configuration is private runtime state, never part of the source checkout."""
 import copy
+from contextlib import contextmanager
 import json
 import os
 from pathlib import Path
@@ -11,6 +12,10 @@ from urllib.parse import urlsplit
 LOCK = threading.RLock()
 ID = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
 NODE = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9.-]{0,252}$")
+
+
+class ConfigError(Exception):
+    """Private configuration is unavailable; do not expose paths or contents."""
 
 
 def text(value, name, limit=160):
@@ -73,15 +78,57 @@ class Store:
 
     def load(self):
         with LOCK:
-            with self.path.open(encoding="utf-8") as handle:
-                return json.load(handle)
+            try:
+                with self.path.open(encoding="utf-8") as handle:
+                    config = json.load(handle)
+                if (not isinstance(config, dict) or not isinstance(config.get("hosts"), list)
+                        or not isinstance(config.get("access_key_hash"), str)
+                        or not config["access_key_hash"]
+                        or not isinstance(config.get("session_secret"), str)
+                        or not config["session_secret"]):
+                    raise ValueError("Invalid configuration structure")
+                for host in config["hosts"]:
+                    validate_host(host)
+                return config
+            except (OSError, ValueError, UnicodeError):
+                raise ConfigError("Configuration is unavailable. Ask the operator to check the private config file.") from None
+
+    @contextmanager
+    def transaction(self):
+        """Hold across the WHOLE read-modify-write, including other processes.
+
+        Lock the stable sidecar, not config.json, which atomic writes replace.
+        Do not nest transactions. Readers need no file lock: replacement is atomic.
+        """
+        with LOCK:
+            self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+            fd = os.open(str(self.path) + ".lock", os.O_CREAT | os.O_RDWR, 0o600)
+            with os.fdopen(fd, "r+b") as handle:
+                if os.name == "nt":
+                    import msvcrt
+                    # Windows byte-range locks may extend past EOF.
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+                    try:
+                        yield
+                    finally:
+                        handle.seek(0)
+                        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle, fcntl.LOCK_EX)
+                    try:
+                        yield
+                    finally:
+                        fcntl.flock(handle, fcntl.LOCK_UN)
 
     def write(self, config):
         with LOCK:
             self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
             fd, temporary = tempfile.mkstemp(prefix=".monitor-", dir=self.path.parent)
             try:
-                os.fchmod(fd, 0o600)
+                # POSIX permissions are the deployment guarantee; Windows uses ACLs.
+                if hasattr(os, "fchmod"):
+                    os.fchmod(fd, 0o600)
                 with os.fdopen(fd, "w", encoding="utf-8") as handle:
                     json.dump(config, handle, indent=2)
                     handle.write("\n")

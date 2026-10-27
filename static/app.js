@@ -1,7 +1,7 @@
 "use strict";
 const $ = id => document.getElementById(id);
 const state = {hosts: [], selected: null, csrf: "", timer: null, controller: null,
-  samples: [], last: null, settings: false, busy: false, generation: 0};
+  samples: [], last: null, settings: false, busy: false, generation: 0, failures: 0};
 const num = value => typeof value === "number" && Number.isFinite(value);
 const fmt = value => num(value) ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 1}).format(value) : "—";
 function bytes(value) {
@@ -90,7 +90,7 @@ async function loadHosts() {
 }
 function selectHost(host) {
   stop();
-  state.selected = host; state.settings = false; state.samples = []; state.last = null;
+  state.selected = host; state.settings = false; state.samples = []; state.last = null; state.failures = 0;
   $("settings").hidden = true; $("empty").hidden = true; $("overview").hidden = false;
   $("breadcrumb").textContent = `${host.provider} / ${host.location} / ${host.name}`;
   $("server-name").textContent = host.name;
@@ -195,9 +195,10 @@ async function sample() {
   try {
     const data = await api(`/api/hosts/${encodeURIComponent(hostId)}/stats`, {signal: controller.signal});
     if (generation !== state.generation) return;
-    state.last = data; renderStats(data);
+    state.failures = 0; state.last = data; renderStats(data);
   } catch (error) {
     if (error.name === "AbortError" || generation !== state.generation) return;
+    state.failures++;
     $("connection").textContent = state.last ? "● Stale · last successful readings retained" : "● Unavailable";
     $("connection").className = "bad";
     $("stats-error").hidden = false; $("stats-error").textContent = error.message;
@@ -207,7 +208,9 @@ async function sample() {
   } finally {
     if (generation === state.generation) {
       state.busy = false; state.controller = null; $("refresh").disabled = false;
-      if (!document.hidden && !state.settings && state.csrf) state.timer = setTimeout(sample, 10000);
+      const delay = state.failures >= 3 ? 30000 : 10000;
+      $("sample-note").textContent = state.failures >= 3 ? "Retrying every 30s · Refresh to try now" : "Updates every 10s while visible";
+      if (!document.hidden && !state.settings && state.csrf) state.timer = setTimeout(sample, delay);
     }
   }
 }

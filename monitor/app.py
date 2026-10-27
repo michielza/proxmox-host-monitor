@@ -7,11 +7,12 @@ import time
 from collections import defaultdict, deque
 from datetime import timedelta
 from functools import wraps
+from urllib.parse import urlsplit
 
 from flask import Flask, jsonify, render_template, request, session
 from werkzeug.security import check_password_hash
 
-from monitor.config import LOCK, Store, public_host, validate_host
+from monitor.config import ConfigError, Store, public_host, validate_host
 from monitor.proxmox import APIError, collect, demo_sample
 
 DEMO = {"id": "demo-server", "name": "Server 01", "provider": "Example Provider",
@@ -34,6 +35,10 @@ def create_app(config_path=None):
     app.extensions["store"] = store
     attempts = defaultdict(deque)
     attempt_lock = threading.Lock()
+
+    @app.errorhandler(ConfigError)
+    def config_unavailable(error):
+        return jsonify(error=str(error)), 503
 
     def version():
         return hashlib.sha256(store.load()["access_key_hash"].encode()).hexdigest()
@@ -60,7 +65,7 @@ def create_app(config_path=None):
         # Local HTTP is an explicit SSH-tunnel development mode, never public HTTP.
         if not request.is_secure:
             loopback = request.remote_addr in ("127.0.0.1", "::1")
-            local_host = request.host.split(":")[0] in ("localhost", "127.0.0.1")
+            local_host = urlsplit(request.host_url).hostname in ("localhost", "127.0.0.1", "::1")
             if app.config["SESSION_COOKIE_SECURE"] or not loopback or not local_host:
                 return jsonify(error="HTTPS is required. Local HTTP is only for an SSH tunnel."), 400
         if request.method not in ("GET", "HEAD", "OPTIONS"):
@@ -160,7 +165,7 @@ def create_app(config_path=None):
         data = request.get_json(silent=True)
         if not isinstance(data, dict):
             return jsonify(error="A server object is required."), 400
-        with LOCK:
+        with store.transaction():
             current = store.load()
             old = next((h for h in current["hosts"] if h["id"] == data.get("id")), None)
             if data.get("id") == DEMO["id"]:
@@ -178,7 +183,7 @@ def create_app(config_path=None):
     @app.delete("/api/hosts/<host_id>")
     @protected
     def delete_host(host_id):
-        with LOCK:
+        with store.transaction():
             current = store.load()
             old_count = len(current["hosts"])
             current["hosts"] = [h for h in current["hosts"] if h["id"] != host_id]

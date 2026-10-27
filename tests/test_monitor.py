@@ -1,4 +1,5 @@
 import json
+import multiprocessing
 import os
 from pathlib import Path
 import tempfile
@@ -8,8 +9,9 @@ from unittest.mock import Mock, patch
 from werkzeug.security import generate_password_hash
 
 from monitor.app import create_app
-from monitor.config import Store, validate_host
+from monitor.config import ConfigError, Store, validate_host
 from monitor.proxmox import APIError, collect, get
+import manage
 
 KEY = "a-test-access-key-that-is-long-enough"
 
@@ -18,6 +20,16 @@ def host():
     return {"id": "server-01", "name": "Server 01", "provider": "Example Provider",
             "location": "Example Location", "node": "pve-01", "url": "https://pve.example.net:8006",
             "token_id": "monitor@pve!dashboard", "token_secret": "test-token-secret", "labels": {}}
+
+
+def process_edit(path, started, acquired):
+    store = Store(path)
+    started.set()
+    with store.transaction():
+        acquired.set()
+        config = store.load()
+        config["hosts"][0]["labels"] = {"ram": "ECC"}
+        store.write(config)
 
 
 class MonitorTests(unittest.TestCase):
@@ -148,11 +160,123 @@ class MonitorTests(unittest.TestCase):
         collector.assert_not_called()
 
     def test_config_private_and_invalid_connections_rejected(self):
-        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         for invalid in ("http://pve.example.net", "https://user:secret@pve.example.net", "https://pve.example.net/path"):
             data = host(); data["url"] = invalid
             with self.assertRaises(ValueError):
                 validate_host(data)
+
+    @unittest.skipUnless(os.name == "posix", "POSIX file permissions; Windows uses ACLs")
+    def test_config_file_is_private_on_posix(self):
+        self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
+
+    def test_config_transactions_serialize_independent_processes(self):
+        context = multiprocessing.get_context("spawn")
+        started, acquired = context.Event(), context.Event()
+        child = context.Process(target=process_edit, args=(str(self.path), started, acquired))
+        try:
+            with self.store.transaction():
+                child.start()
+                self.assertTrue(started.wait(10), "Child did not start")
+                self.assertFalse(acquired.wait(.25), "Other process entered a locked transaction")
+                config = self.store.load()
+                config["access_key_hash"] = "rotated-test-hash"
+                self.store.write(config)
+            child.join(10)
+            self.assertEqual(child.exitcode, 0)
+            saved = self.store.load()
+            self.assertEqual(saved["access_key_hash"], "rotated-test-hash")
+            self.assertEqual(saved["hosts"][0]["labels"], {"ram": "ECC"})
+        finally:
+            if child.pid is not None:
+                if child.is_alive():
+                    child.terminate()
+                child.join(5)
+
+    def test_rotation_keeps_edits_made_during_hash_generation(self):
+        def hash_while_another_writer_saves(_):
+            with self.store.transaction():
+                config = self.store.load()
+                config["hosts"][0]["labels"] = {"cpu": "New label"}
+                self.store.write(config)
+            return "rotated-test-hash"
+        with patch("sys.argv", ["manage.py", "rotate-key", "--config", str(self.path)]), \
+                patch("manage.getpass", return_value=KEY), \
+                patch("manage.generate_password_hash", side_effect=hash_while_another_writer_saves), \
+                patch("builtins.print"):
+            manage.main()
+        config = self.store.load()
+        self.assertEqual(config["access_key_hash"], "rotated-test-hash")
+        self.assertEqual(config["hosts"][0]["labels"], {"cpu": "New label"})
+
+    def test_corrupt_config_returns_safe_503_and_recovers(self):
+        self.login()
+        original = self.path.read_text(encoding="utf-8")
+        for content in ("invalid json", '{"hosts": 3}'):
+            self.path.write_text(content, encoding="utf-8")
+            response = self.client.get("/api/hosts")
+            self.assertEqual(response.status_code, 503)
+            self.assertIn("Configuration is unavailable", response.json["error"])
+            self.assertNotIn(str(self.path), response.text)
+        self.path.write_text(original, encoding="utf-8")
+        self.assertEqual(self.client.get("/api/hosts").status_code, 200)
+
+    def test_missing_config_returns_safe_503(self):
+        self.login()
+        self.path.unlink()
+        self.assertEqual(self.client.get("/api/session").status_code, 503)
+
+    def test_ipv6_loopback_and_hostname_confusion(self):
+        response = self.client.get("/", base_url="http://[::1]:8080", environ_overrides={"REMOTE_ADDR": "::1"})
+        self.assertEqual(response.status_code, 200)
+        for origin in ("http://localhost.example.net", "http://127.0.0.1.example.net", "http://[::2]:8080"):
+            self.assertEqual(self.client.get("/", base_url=origin).status_code, 400)
+
+    def test_disable_demo_cli_does_not_prompt_for_key(self):
+        with patch("sys.argv", ["manage.py", "disable-demo", "--config", str(self.path)]), \
+                patch("manage.getpass") as prompt, patch("builtins.print"):
+            manage.main()
+        prompt.assert_not_called()
+        self.assertFalse(self.store.load()["demo"])
+        self.assertEqual(len(self.store.load()["hosts"]), 1)
+
+    def test_rotate_missing_config_has_friendly_error(self):
+        self.path.unlink()
+        with patch("sys.argv", ["manage.py", "rotate-key", "--config", str(self.path)]), \
+                patch("manage.getpass") as prompt, patch("sys.stderr") as stderr:
+            with self.assertRaises(SystemExit) as error:
+                manage.main()
+        self.assertEqual(error.exception.code, 2)
+        prompt.assert_not_called()
+        self.assertIn("Run init first", "".join(call.args[0] for call in stderr.write.call_args_list))
+
+    def test_session_restore_and_logout(self):
+        headers = self.login()
+        restored = self.client.get("/api/session")
+        self.assertTrue(restored.json["authenticated"])
+        self.assertEqual(restored.json["csrf"], headers["X-CSRF-Token"])
+        self.assertEqual(self.client.post("/api/logout", json={}, headers=headers).status_code, 200)
+        self.assertEqual(self.client.get("/api/session").status_code, 401)
+
+    def test_host_cap_and_label_limits(self):
+        headers = self.login()
+        config = self.store.load()
+        config["hosts"] = [validate_host(dict(host(), id=f"server-{i}")) for i in range(200)]
+        self.store.write(config)
+        result = self.client.post("/api/hosts", json=dict(host(), id="over-limit"), headers=headers)
+        self.assertEqual(result.status_code, 400)
+        for labels in ({f"component-{i}": "Label" for i in range(101)},
+                       {"ram": "x" * 251}, {"ram": "bad\nlabel"}):
+            with self.assertRaises(ValueError):
+                validate_host(dict(host(), labels=labels))
+
+    def test_ping_parsing_and_no_response(self):
+        from monitor.proxmox import ping
+        with patch("monitor.proxmox.subprocess.run", return_value=Mock(returncode=0, stdout="64 bytes: time=12.4 ms")) as run:
+            self.assertEqual(ping(host()), 12.4)
+            self.assertEqual(run.call_args.args[0][-1], "pve.example.net")
+            self.assertNotIn("shell", run.call_args.kwargs)
+        with patch("monitor.proxmox.subprocess.run", return_value=Mock(returncode=1, stdout="")):
+            self.assertIsNone(ping(host()))
 
 
 if __name__ == "__main__":
