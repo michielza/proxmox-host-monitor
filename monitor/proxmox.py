@@ -1,15 +1,14 @@
 """Only explicit GET endpoints; no Proxmox mutation methods exist here."""
 from concurrent.futures import ThreadPoolExecutor
 import math
-import re
-import subprocess
 import ssl
 import time
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.ssl_ import create_urllib3_context
+from monitor.ping import PingError, ping
 
 
 class APIError(Exception):
@@ -62,19 +61,6 @@ def get(host, endpoint):
             raise APIError("Unexpected API response.") from None
 
 
-def ping(host):
-    """One bounded ICMP echo to the configured API host; no shell interpolation."""
-    try:
-        result = subprocess.run(
-            ["ping", "-n", "-c", "1", "-W", "2", "--", urlsplit(host["url"]).hostname],
-            capture_output=True, text=True, timeout=3, env={"LC_ALL": "C", "PATH": "/usr/bin:/bin"},
-        )
-        match = re.search(r"time[=<]([\d.]+)\s*ms", result.stdout)
-        return float(match.group(1)) if result.returncode == 0 and match else None
-    except (OSError, subprocess.TimeoutExpired):
-        return None
-
-
 def collect(host):
     node = quote(host["node"], safe="")
     endpoints = {"status": f"/nodes/{node}/status", "storage": f"/nodes/{node}/storage",
@@ -90,7 +76,11 @@ def collect(host):
             except APIError as exc:
                 errors[key] = str(exc)
                 failures[key] = exc
-        latency = echo.result()
+        ping_error = None
+        try:
+            latency = echo.result()
+        except PingError as exc:
+            latency, ping_error = None, str(exc)
     if "status" not in data:
         raise failures["status"]
     status = data["status"]
@@ -115,7 +105,7 @@ def collect(host):
             "storage": data.get("storage") if "storage" in data else None,
             "network": [{k: iface.get(k) for k in ("iface", "type", "active", "autostart")}
                         for iface in data.get("network", [])],
-            "guests": counts, "ping_ms": latency, "version": status.get("pveversion")}
+            "guests": counts, "ping_ms": latency, "ping_error": ping_error, "version": status.get("pveversion")}
 
 
 def demo_sample(host):

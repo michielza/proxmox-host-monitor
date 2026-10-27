@@ -127,3 +127,13 @@ See [REVIEW.md](REVIEW.md) for the first independent-review checkpoint and known
 ## License
 
 [MIT](LICENSE).
+
+## ICMP ping
+
+Ping is measured from the machine running the backend, not the browser. A Windows development preview therefore measures a different network path from a Linux VM deployment.
+
+Linux uses [icmplib](https://github.com/ValentinBELYN/icmplib) with unprivileged ICMP datagram sockets (`privileged=False`), one echo request and a two-second reply timeout. The supplied service keeps `NoNewPrivileges=true` and an empty capability bounding set: no raw-socket capability or privileged helper is required. The OS must allow the service group to use ICMP datagram sockets through `net.ipv4.ping_group_range`; if it does not, the page reports ping as unavailable. The application does not change sysctls or permissions automatically.
+
+Windows uses the system ping executable with Windows arguments, a numeric destination and no shell. RTTs below one millisecond are shown as the reported one-millisecond upper bound. Unrecognized output is reported as unavailable rather than inventing a latency.
+
+The page distinguishes **No reply** (no successful ICMP echo reply) from **Unavailable** (a local lookup, permission or probe execution error). Ping failure does not prevent CPU, RAM or storage reads or block connection saving. ICMP success does not establish API health, and a missing reply does not prove the host is offline.

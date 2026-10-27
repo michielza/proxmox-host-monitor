@@ -271,12 +271,15 @@ class MonitorTests(unittest.TestCase):
 
     def test_ping_parsing_and_no_response(self):
         from monitor.proxmox import ping
-        with patch("monitor.proxmox.subprocess.run", return_value=Mock(returncode=0, stdout="64 bytes: time=12.4 ms")) as run:
-            self.assertEqual(ping(host()), 12.4)
-            self.assertEqual(run.call_args.args[0][-1], "pve.example.net")
-            self.assertNotIn("shell", run.call_args.kwargs)
-        with patch("monitor.proxmox.subprocess.run", return_value=Mock(returncode=1, stdout="")):
-            self.assertIsNone(ping(host()))
+        target = dict(host(), url="https://192.0.2.1:8006")
+        with patch("monitor.ping.platform.system", return_value="Windows"):
+            with patch("monitor.ping.subprocess.run", return_value=Mock(returncode=0, stdout="Reply: time=12.4ms TTL=54")) as run:
+                self.assertEqual(ping(target), 12.4)
+                self.assertEqual(run.call_args.args[0][-1], "192.0.2.1")
+                self.assertEqual(run.call_args.args[0][1:5], ["-n", "1", "-w", "2000"])
+                self.assertNotIn("shell", run.call_args.kwargs)
+            with patch("monitor.ping.subprocess.run", return_value=Mock(returncode=1, stdout="")):
+                self.assertIsNone(ping(target))
 
 
 if __name__ == "__main__":
