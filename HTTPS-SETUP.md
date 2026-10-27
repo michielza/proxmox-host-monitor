@@ -16,8 +16,12 @@ Install nginx through the machine's package manager. For the ACME client, use a 
 sudo python3 -m venv /opt/phm-certbot
 sudo /opt/phm-certbot/bin/python -m pip install 'certbot==5.8.0'
 sudo /opt/phm-certbot/bin/certbot --version
+sudo install -d -m 0755 /var/lib/proxmox-host-monitor-acme
+sudo install -d -m 0755 /var/lib/proxmox-host-monitor-acme/.well-known
 sudo install -d -m 0755 /var/lib/proxmox-host-monitor-acme/.well-known/acme-challenge
 ```
+
+Create all three public challenge directories explicitly so a restrictive operator umask cannot leave an ancestor unreadable to nginx. This webroot is separate from the private app configuration directory, whose permissions must remain unchanged.
 
 Certbot 5.4+ supports the IP-address webroot flow. The pin above was checked against Certbot's published 5.8.0 release; maintain this isolated client with normal security updates.
 
