@@ -13,6 +13,7 @@ from flask import Flask, jsonify, render_template, request, session
 from werkzeug.security import check_password_hash
 
 from monitor.config import ConfigError, Store, public_host, validate_host
+from monitor.certificates import CertificateTrust, connection_changed
 from monitor.proxmox import APIError, collect, demo_sample
 
 DEMO = {"id": "demo-server", "name": "Server 01", "provider": "Example Provider",
@@ -33,8 +34,35 @@ def create_app(config_path=None):
         SESSION_REFRESH_EACH_REQUEST=False,
     )
     app.extensions["store"] = store
+    trust = CertificateTrust(store, config["session_secret"])
     attempts = defaultdict(deque)
     attempt_lock = threading.Lock()
+    connection_attempts = defaultdict(deque)
+
+    def connection_limit():
+        # Shared by inspection, testing and saves that trigger network checks.
+        # This bounds bursts; key holders remain trusted monitor administrators.
+        now = time.monotonic()
+        with attempt_lock:
+            for bucket in list(connection_attempts):
+                while connection_attempts[bucket] and connection_attempts[bucket][0] <= now - 60:
+                    connection_attempts[bucket].popleft()
+                if not connection_attempts[bucket]:
+                    del connection_attempts[bucket]
+            buckets = (("session", session["csrf"]), ("global", ""))
+            if any(len(connection_attempts[bucket]) >= limit for bucket, limit in zip(buckets, (12, 60))):
+                response = jsonify(error="Too many connection checks. Try again in one minute.")
+                response.headers["Retry-After"] = "60"
+                return response, 429
+            for bucket in buckets:
+                connection_attempts[bucket].append(now)
+
+    def connection_limited(fn):
+        @wraps(fn)
+        def wrapper(*args, **kwargs):
+            limited = connection_limit()
+            return limited if limited is not None else fn(*args, **kwargs)
+        return wrapper
 
     @app.errorhandler(ConfigError)
     def config_unavailable(error):
@@ -159,23 +187,80 @@ def create_app(config_path=None):
         except (TypeError, KeyError, AttributeError):
             return jsonify(error="Unexpected Proxmox response. Check the node and API version."), 502
 
+    def candidate(data):
+        if not isinstance(data, dict):
+            raise ValueError("A server object is required.")
+        if data.get("id") == DEMO["id"]:
+            raise ValueError("The demo server cannot be edited.")
+        current = store.load()
+        old = next((h for h in current["hosts"] if h["id"] == data.get("id")), None)
+        if not old and len(current["hosts"]) >= 200:
+            raise ValueError("Limit of 200 servers reached.")
+        # Trust paths are backend-owned. Clients choose a trust method instead.
+        host = validate_host(dict(data, ca_file=old.get("ca_file", "") if old else ""), old)
+        choice = trust.choice(data, host, old, session["csrf"])
+        return host, old, choice
+
+    def verify_connection(host, choice):
+        with trust.connection(host, choice) as connection:
+            result = collect(connection)
+        if result.get("errors"):
+            raise APIError("Connection check failed: " + "; ".join(result["errors"].values()))
+
+    @app.post("/api/connection/certificate")
+    @protected
+    @connection_limited
+    def inspect_certificate():
+        data = request.get_json(silent=True)
+        try:
+            if not isinstance(data, dict):
+                raise ValueError("An API URL is required.")
+            return jsonify(trust.inspection(data.get("url"), session["csrf"]))
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+
+    @app.post("/api/connection/test")
+    @protected
+    @connection_limited
+    def test_connection():
+        try:
+            host, _, choice = candidate(request.get_json(silent=True))
+            verify_connection(host, choice)
+            return jsonify(ok=True, message="TLS verified. All four read-only API checks passed. Save to keep this connection.")
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except APIError as exc:
+            return jsonify(ok=False, error=str(exc), kind=exc.kind)
+        except (TypeError, KeyError, AttributeError):
+            return jsonify(ok=False, error="Unexpected Proxmox response. Check the node and API version.")
+
     @app.post("/api/hosts")
     @protected
     def save_host():
-        data = request.get_json(silent=True)
-        if not isinstance(data, dict):
-            return jsonify(error="A server object is required."), 400
+        try:
+            host, old, choice = candidate(request.get_json(silent=True))
+            if connection_changed(host, old, choice):
+                limited = connection_limit()
+                if limited is not None:
+                    return limited
+                verify_connection(host, choice)
+        except ValueError as exc:
+            return jsonify(error=str(exc)), 400
+        except APIError as exc:
+            return jsonify(error=str(exc), kind=exc.kind), 502
+        except (TypeError, KeyError, AttributeError):
+            return jsonify(error="Unexpected Proxmox response. Check the node and API version."), 502
         with store.transaction():
             current = store.load()
-            old = next((h for h in current["hosts"] if h["id"] == data.get("id")), None)
-            if data.get("id") == DEMO["id"]:
-                return jsonify(error="The demo server cannot be edited."), 400
-            try:
-                host = validate_host(data, old)
-            except ValueError as exc:
-                return jsonify(error=str(exc)), 400
+            latest = next((h for h in current["hosts"] if h["id"] == host["id"]), None)
+            if latest != old:
+                return jsonify(error="This server changed while testing. Reload its settings and try again."), 409
             if not old and len(current["hosts"]) >= 200:
                 return jsonify(error="Limit of 200 servers reached."), 400
+            try:
+                host["ca_file"] = trust.persist(choice)
+            except ValueError as exc:
+                return jsonify(error=str(exc)), 400
             current["hosts"] = [h for h in current["hosts"] if h["id"] != host["id"]] + [host]
             store.write(current)
         return jsonify(host=public_host(host))

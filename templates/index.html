@@ -54,7 +54,14 @@
           <label>API URL<input id="host-url" type="url" required placeholder="https://pve.example.net:8006" maxlength="500"></label>
           <label>Token ID<input id="host-token-id" required placeholder="monitor@pve!dashboard" maxlength="250" autocomplete="off"></label>
           <label>Token secret<input id="host-token-secret" type="password" autocomplete="new-password" maxlength="500"><small>Stored only on the backend. Leave blank to retain it when editing the same connection.</small></label>
-          <label>Trusted CA file <span class="fine">optional</span><input id="host-ca" placeholder="/etc/proxmox-host-monitor/pve-ca.pem" maxlength="500"><small>Absolute path on the monitor VM. Certificate verification is always enabled.</small></label>
+          <fieldset class="certificate-box"><legend>Certificate trust</legend>
+            <label>Trust method<select id="trust-mode"><option value="existing">Keep saved trust</option><option value="system">Publicly trusted certificate</option><option value="ca">Upload trusted CA</option><option value="certificate">Approve this server certificate</option></select></label>
+            <p id="trust-description" class="fine"></p>
+            <label id="ca-upload" hidden>CA certificate file (.pem / .crt)<input id="ca-file" type="file" accept=".pem,.crt,.cer"><small>Public CA certificates only, up to 32 KiB. Never upload a private key.</small></label>
+            <div class="form-actions"><button id="inspect-certificate" type="button">Inspect server certificate</button><button id="test-connection" type="button">Test connection</button></div>
+            <div id="certificate-details" hidden><p class="fine">Inspection alone does not verify identity. Compare this SHA-256 fingerprint through a trusted source before approving.</p><pre id="certificate-summary"></pre><label><input id="trust-confirmed" type="checkbox"> I verified this fingerprint and trust this certificate.</label></div>
+            <p id="connection-message" role="status"></p>
+          </fieldset>
           <div class="label-editor"><h2>Component labels</h2><p class="fine">Add your own descriptions, such as SSD, ECC or Public uplink.</p><div id="label-rows"></div><button id="add-label" type="button">+ Add label</button></div>
           <div class="form-actions"><button type="submit" class="primary">Save server</button><button id="delete-host" type="button" class="danger" hidden>Remove from monitor</button></div><p id="config-message" role="status"></p>
           <p class="fine">Anyone with the shared access key can edit these settings. Saving never changes Proxmox.</p>

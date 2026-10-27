@@ -47,3 +47,26 @@ Independent re-review accepted the transaction boundaries and follow-up regressi
 - CPU model/topology, RAM, individual dir/lvmthin/pbs storage entries, guest counts and ICMP ping displayed in the authenticated dashboard.
 - Modern TLS defaults rejected the older cluster CA's missing key-usage extension. Exact-node certificate trust, bootstrapped through verified SSH, passed without disabling verification or changing production certificates. Renewal requires refreshing that trust file.
 - Real identities, addresses, token material, CA files and screenshots remain outside the public source tree. No real-host fixture or metrics history was committed.
+## Certificate onboarding review checkpoint
+
+The certificate-onboarding branch replaces manual trust-file installation with CA upload or explicit node-certificate approval. Inspection performs a metadata-only TLS handshake without verification, HTTP, or API credentials; it cannot itself save trust. Approval must be explicit, expires after ten minutes, and is signed and bound to the API URL and authenticated session. Test and save always use verified TLS. Hostname/IP and expiry checks remain enabled, including when an exact leaf is the trust anchor.
+
+New or changed connections must pass all four read-only endpoint checks before saving. Failed verification preserves the prior host configuration and removes temporary trust files. Existing trust paths remain usable, and metadata-only edits do not require a reachable host. Certificate files are stored outside the source checkout, with private POSIX permissions. Old certificate files are retained for operator-controlled cleanup.
+
+Review focus: approval binding and replay limits, credential handling before TLS verification, CA versus exact-leaf trust, concurrent edits during connection tests, and certificate renewal behavior. The browser must never auto-approve a fingerprint merely because inspection succeeded. The signed approval contains the public certificate, not API credentials.
+
+Validation: 33 automated tests on Linux/Python 3.14; Windows/Python 3.13 runs the same suite with the POSIX permission test skipped. Generated loopback TLS servers cover CA chains, approved leaf trust, rejection of wrong identity, expiry and changed certificates, and absence of HTTP/API credentials during inspection or failed verification. Browser testing covers rejection, inspection, approval, test, save, reload and reuse. Existing configured hosts were checked read-only with unchanged private configuration. Independent review remains pending before merging this feature.
+
+
+## PR 2 independent review follow-up
+
+Reika approved the feature with two low-priority and four informational findings and independently passed the original 33 tests. Follow-up disposition:
+
+- F1: inspection, tests and connection-changing saves now share a 12/session/minute and 60/process/minute throttle. Auth and CSRF run before throttling; blocked requests do not contact targets. Offline metadata edits and normal stats polling are unaffected. This bounds bursts, not destination authorization: shared-key holders remain trusted administrators. Limits are in-memory and per process; the supplied service has one worker.
+- F2: README explicitly documents that every custom trust file, including legacy paths, uses explicit trust anchors and accepts intermediate-only chains. Hostname and expiry validation remain enabled.
+- F3: retained intentional API distinction: a test returns a completed check result (`ok=false`), while a failed save returns HTTP 502. Both display the same safe upstream error to the operator and never turn a Proxmox 401 into website logout.
+- F4: invalid/expired approved node certificates now report a node-certificate-specific error; CA upload errors remain specific to CA bundles.
+- F5: strict validation retained and documented: every certificate in an uploaded CA bundle must be valid and unexpired.
+- F6: retained operator-controlled cleanup of old certificate files; no automatic deletion added.
+
+Three additional regression tests cover the shared throttle, global limit across sessions and leaf-specific errors. The resulting suite has 36 tests. No changes to approval binding, trust verification or credential routing were made after independent review.

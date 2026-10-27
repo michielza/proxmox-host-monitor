@@ -2,6 +2,9 @@
 const $ = id => document.getElementById(id);
 const state = {hosts: [], selected: null, csrf: "", timer: null, controller: null,
   samples: [], last: null, settings: false, busy: false, generation: 0, failures: 0};
+let certificateTicket = "";
+let certificateGeneration = 0;
+let caPem = "";
 const num = value => typeof value === "number" && Number.isFinite(value);
 const fmt = value => num(value) ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 1}).format(value) : "—";
 function bytes(value) {
@@ -46,6 +49,7 @@ function lock() {
   $("tree").replaceChildren();
   $("settings-hosts").replaceChildren();
   $("host-form").reset();
+  resetCertificate();
   $("shell").hidden = true;
   $("login").hidden = false;
   $("access-key").value = "";
@@ -250,14 +254,79 @@ function editHost(host = null) {
   $("host-form").reset();
   $("config-message").textContent = "";
   $("form-heading").textContent = host ? `Edit ${host.name}` : "Add server";
-  $("host-id").value = host?.id || "";
-  const fields = {name: "name", node: "node", provider: "provider", location: "location", url: "url", "token-id": "token_id", ca: "ca_file"};
+  $("host-id").value = host?.id || crypto.randomUUID();
+  const fields = {name: "name", node: "node", provider: "provider", location: "location", url: "url", "token-id": "token_id"};
   for (const [input, key] of Object.entries(fields)) $(`host-${input}`).value = host?.[key] || "";
   $("host-token-secret").required = !host;
   $("label-rows").replaceChildren();
   for (const [key,value] of Object.entries(host?.labels || {})) addLabelRow(key,value);
   $("delete-host").hidden = !host;
+  resetCertificate();
+  $("trust-mode").querySelector('[value="existing"]').disabled = !host;
+  $("trust-mode").value = host ? "existing" : "system";
+  updateTrust();
 }
+function resetCertificate() {
+  certificateGeneration++;
+  certificateTicket = ""; caPem = "";
+  $("ca-file").value = "";
+  $("trust-confirmed").checked = false;
+  $("certificate-details").hidden = true;
+  $("certificate-summary").textContent = "";
+  $("connection-message").textContent = "";
+}
+function updateTrust() {
+  const mode = $("trust-mode").value;
+  $("ca-upload").hidden = mode !== "ca";
+  $("certificate-details").hidden = mode !== "certificate" || !certificateTicket;
+  $("trust-description").textContent = {existing: "Uses the certificate trust already saved for this server.", system: "Uses the monitor's standard trusted certificate authorities.", ca: "Upload the CA that issued this server's certificate. It will be stored and reused automatically.", certificate: "Inspect the certificate, verify its fingerprint, then explicitly approve it. Hostname and expiry checks remain enabled."}[mode];
+  $("connection-message").textContent = "";
+}
+function connectionPayload() {
+  if ($("trust-mode").value === "ca" && !caPem) throw new Error("Choose a CA certificate file first.");
+  return {id: $("host-id").value, name: $("host-name").value,
+    node: $("host-node").value, provider: $("host-provider").value, location: $("host-location").value,
+    url: $("host-url").value, token_id: $("host-token-id").value, token_secret: $("host-token-secret").value,
+    labels: readLabels(), trust_mode: $("trust-mode").value, ca_pem: caPem,
+    certificate_ticket: certificateTicket, trust_confirmed: $("trust-confirmed").checked};
+}
+$("trust-mode").onchange = () => {$("trust-confirmed").checked = false; updateTrust();};
+$("host-url").oninput = () => {resetCertificate(); updateTrust();};
+$("ca-file").onchange = async () => {
+  caPem = "";
+  const file = $("ca-file").files[0], generation = certificateGeneration;
+  try {
+    if (!file) return;
+    if (file.size > 32768) throw new Error("Certificate files must be at most 32 KiB.");
+    const pem = await file.text();
+    if (generation === certificateGeneration && $("ca-file").files[0] === file) caPem = pem;
+  } catch (error) {$("connection-message").textContent = error.message;}
+};
+$("inspect-certificate").onclick = async () => {
+  const button = $("inspect-certificate"), generation = certificateGeneration;
+  button.disabled = true;
+  certificateTicket = ""; $("trust-confirmed").checked = false; $("certificate-details").hidden = true;
+  try {
+    const result = await api("/api/connection/certificate", {method: "POST", body: JSON.stringify({url: $("host-url").value})});
+    if (generation !== certificateGeneration || !state.csrf) return;
+    certificateTicket = result.ticket;
+    const cert = result.certificate;
+    $("certificate-summary").textContent = `Subject: ${cert.subject}\nIssuer: ${cert.issuer}\nNames: ${cert.names.join(", ")}\nValid from: ${cert.not_before}\nValid until: ${cert.not_after}\nSHA-256: ${cert.fingerprint}`;
+    $("trust-mode").value = "certificate"; updateTrust();
+    $("connection-message").textContent = cert.valid_now ? "Verify the fingerprint, tick approval, then test or save." : "This certificate is outside its validity period and cannot be trusted.";
+  } catch (error) {if (generation === certificateGeneration) $("connection-message").textContent = error.message;}
+  finally {button.disabled = false;}
+};
+$("test-connection").onclick = async () => {
+  if (!$("host-form").reportValidity()) return;
+  const button = $("test-connection"), generation = certificateGeneration;
+  button.disabled = true; $("connection-message").textContent = "Checking TLS and read-only API access…";
+  try {
+    const result = await api("/api/connection/test", {method: "POST", body: JSON.stringify(connectionPayload())});
+    if (generation === certificateGeneration && state.csrf) $("connection-message").textContent = result.ok ? result.message : result.error;
+  } catch (error) {if (generation === certificateGeneration) $("connection-message").textContent = error.message;}
+  finally {button.disabled = false;}
+};
 function showSettings() {
   stop(); state.settings = true;
   $("overview").hidden = true; $("empty").hidden = true; $("settings").hidden = false;
@@ -295,10 +364,7 @@ $("host-form").onsubmit = async event => {
   event.preventDefault();
   const button=event.submitter; button.disabled=true;
   try {
-    const host = {id: $("host-id").value || crypto.randomUUID(), name: $("host-name").value,
-      node: $("host-node").value, provider: $("host-provider").value, location: $("host-location").value,
-      url: $("host-url").value, token_id: $("host-token-id").value, token_secret: $("host-token-secret").value,
-      ca_file: $("host-ca").value, labels: readLabels()};
+    const host = connectionPayload();
     const saved = await api("/api/hosts", {method: "POST", body: JSON.stringify(host)});
     $("host-token-secret").value = "";
     await loadHosts(); editHost(saved.host);
