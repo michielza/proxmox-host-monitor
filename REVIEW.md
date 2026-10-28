@@ -108,3 +108,16 @@ Reika independently approved PR #5 at commit `39b9668` with no blocking findings
 All three informational notes are accepted: base sensitivity can also ignore accents; the browser's default locale can affect ordering; and initial selection still follows configuration order, so the selected server need not be the first displayed entry. No code changes were required after review.
 
 PR #5 merged as `3293990` and was deployed without restarting the service. HTTPS checks confirmed the login page, the unauthenticated API boundary and an exact byte match between the served JavaScript and the reviewed merged file. Private host configuration and the base service unit were unchanged. The prior revision remains available for rollback.
+
+## PR 6 RAM fallback and version review/deployment
+
+Reika approved PR #6 at `7cfef25` with no blocking findings. Her independent Windows regression run passed 40 of 42 tests with two platform skips. She checked field-dependent available/free memory selection, valid zero values, no estimated availability, version formatting and safe text rendering, and stale-state resets. The duplicated version fallback hover text and redundant reset are accepted cosmetic details. Her request for repeatable UI tests is addressed by `tests/test_ui.cjs` in the next review round.
+
+PR #6 merged as `5ee3851` and was deployed. Verified HTTPS checks confirmed the new header template, exactly one version element, the unauthenticated API boundary and exact reviewed JavaScript/CSS. Private host configuration and the base service unit were unchanged. The web service was restarted to load the template; the prior revision remains available for rollback.
+
+## PR 7 stable ordering review checkpoint
+
+The storage table previously rendered rows in upstream API order, so differently ordered responses could move entries between refreshes. The proposed change sorts a copy naturally by storage name before rendering; labels and metrics remain attached to each storage object. It also selects the first host in the displayed Provider/Location tree after login. Provider and location insertion order is preserved; a global host-name sort would select the wrong branch. Login clears stale search text, and returning from settings keeps a valid current selection or uses the same first-host fallback.
+
+Seven Node UI tests execute the shipped renderer and handlers against a small DOM double: all six permutations of three storage entries, label/metric identity, unchanged frozen API arrays, empty/unavailable storage, nested tree selection, settings return, empty inventory, RAM edge cases and version/reset handling. Browser verification with a fictional API that reverses storage order between samples confirmed unchanged displayed row order and label placement; the first displayed host was selected despite reverse configuration order. This round awaits independent review before merge and deployment.
+
