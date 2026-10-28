@@ -7,7 +7,7 @@ let certificateGeneration = 0;
 let caPem = "";
 const num = value => typeof value === "number" && Number.isFinite(value);
 const fmt = value => num(value) ? new Intl.NumberFormat(undefined, {maximumFractionDigits: 1}).format(value) : "—";
-const hostNameOrder = new Intl.Collator(undefined, {numeric: true, sensitivity: "base"});
+const nameOrder = new Intl.Collator(undefined, {numeric: true, sensitivity: "base"});
 function bytes(value) {
   if (!num(value) || value < 0) return "—";
   const units = ["B", "KiB", "MiB", "GiB", "TiB", "PiB"];
@@ -73,7 +73,7 @@ function renderTree() {
     for (const [location, hosts] of locations) {
       const branch = node("details"); branch.open = true;
       branch.append(node("summary", location));
-      for (const host of hosts.sort((a, b) => hostNameOrder.compare(a.name, b.name))) {
+      for (const host of hosts.sort((a, b) => nameOrder.compare(a.name, b.name))) {
         const button = node("button", undefined, `server-button${state.selected?.id === host.id ? " active" : ""}`);
         button.append(node("span", "", "dot"), node("span", host.name));
         if (state.selected?.id === host.id) button.setAttribute("aria-current", "page");
@@ -92,6 +92,12 @@ async function loadHosts() {
   state.hosts = data.hosts;
   renderTree();
   renderSettingsList();
+}
+function firstHostInTree() {
+  const first = state.hosts[0];
+  if (!first) return null;
+  return state.hosts.filter(host => host.provider === first.provider && host.location === first.location)
+    .sort((a, b) => nameOrder.compare(a.name, b.name))[0];
 }
 function selectHost(host) {
   stop();
@@ -134,7 +140,7 @@ function renderStats(data) {
   $("ram-bar").value = ram || 0;
   $("storage-count").textContent = data.storage ? `${data.storage.length} entries` : "Unavailable";
   $("storage-body").replaceChildren();
-  for (const storage of data.storage || []) {
+  for (const storage of [...(data.storage || [])].sort((a, b) => nameOrder.compare(a.storage, b.storage))) {
     const row = node("tr");
     const name = node("td"); name.append(node("strong", storage.storage));
     const tags = node("div", undefined, "labels"); labels(tags, state.selected, `storage:${storage.storage}`); name.append(tags);
@@ -346,8 +352,9 @@ function showSettings() {
 }
 async function unlock() {
   $("login").hidden = true; $("shell").hidden = false;
+  $("search").value = "";
   await loadHosts();
-  if (state.hosts.length) selectHost(state.hosts[0]);
+  if (state.hosts.length) selectHost(firstHostInTree());
   else { $("empty").hidden = false; $("overview").hidden = true; $("settings").hidden = true; }
 }
 $("login-form").onsubmit = async event => {
@@ -369,7 +376,7 @@ $("new-host").onclick = () => editHost();
 $("add-label").onclick = () => addLabelRow();
 $("back-button").onclick = () => {
   if (state.selected && state.hosts.some(h => h.id === state.selected.id)) selectHost(state.hosts.find(h => h.id === state.selected.id));
-  else if (state.hosts.length) selectHost(state.hosts[0]);
+  else if (state.hosts.length) {$("search").value = ""; selectHost(firstHostInTree());}
   else {state.settings=false; $("settings").hidden=true; $("empty").hidden=false; $("breadcrumb").textContent="Infrastructure";}
 };
 $("host-form").onsubmit = async event => {
