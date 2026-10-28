@@ -129,6 +129,8 @@ UI regression checks use Node.js 18+ with its built-in test runner (no npm depen
 node --test tests/test_ui.cjs
 ```
 
+Before deploying a change, run both the Python and UI commands above, then verify the served assets and affected behavior after deployment. Do not treat the Python suite alone as coverage for browser rendering.
+
 See [REVIEW.md](REVIEW.md) for independent reviews, deployment verification and known limits. Certificate onboarding, ping reporting, public HTTPS deployment, sidebar host sorting, RAM fallback and the version header have completed independent review. Keep local HTTP development loopback-only; follow [HTTPS-SETUP.md](HTTPS-SETUP.md) for public deployment.
 
 ## License
