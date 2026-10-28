@@ -6,7 +6,8 @@ A small, self-hosted, read-only Proxmox resource monitor. CPU, RAM and storage f
 
 - Expand **Provider → Location → Server** in the sidebar. Servers within each location are sorted naturally by name, ignoring case (for example, `host2` before `host10`). Provider and location order stay as configured. Select a server to see its resources.
 - CPU model, sockets, cores, threads and current usage.
-- RAM total, used and available. Older APIs without available memory show free memory separately.
+- RAM total, used and available. When the API omits available memory (as on PVE 8), the main readout shows explicitly labelled free memory instead. Available memory includes reclaimable cache; free memory does not. Selection depends on reported fields, not the version number. Missing values remain unavailable rather than being estimated from total minus used.
+- Proxmox VE release directly beneath the server name; hover over it for the full API-reported package/build string.
 - Every API-visible Proxmox storage entry, including inactive entries, with its individual capacity. Shared backing disks are never summed.
 - Running/stopped VM and container counts, with templates excluded.
 - Reported physical/bond interface state and one ICMP ping from the monitoring machine.

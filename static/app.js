@@ -102,6 +102,10 @@ function selectHost(host) {
   labels($("server-labels"), host, "server"); labels($("cpu-labels"), host, "cpu"); labels($("ram-labels"), host, "ram");
   $("stats-error").hidden = true;
   for (const id of ["cpu-value", "ram-value", "cpu-model", "cpu-spec", "ram-used", "ping-value", "guest-counts", "network-ports", "storage-count", "version"]) $(id).textContent = "—";
+  $("version").textContent = "Proxmox VE · waiting for data";
+  $("version").title = "";
+  $("ram-spec").textContent = "Waiting for memory data";
+  $("ram-spec").title = "";
   $("storage-body").replaceChildren();
   $("cpu-bar").value = 0; $("ram-bar").value = 0;
   $("updated").textContent = "Waiting for first sample";
@@ -121,9 +125,11 @@ function renderStats(data) {
   $("cpu-model").textContent = data.cpu.model || "CPU model unavailable";
   $("cpu-spec").textContent = `${fmt(data.cpu.sockets)} sockets · ${fmt(data.cpu.cores)} cores · ${fmt(data.cpu.threads)} threads`;
   $("cpu-bar").value = cpu || 0;
-  const available = data.memory.available;
-  $("ram-value").textContent = bytes(available);
-  $("ram-spec").textContent = num(available) ? "Available memory" : `Free memory: ${bytes(data.memory.free)} · available not reported`;
+  const available = num(data.memory.available) && data.memory.available >= 0;
+  const free = num(data.memory.free) && data.memory.free >= 0;
+  $("ram-value").textContent = bytes(available ? data.memory.available : free ? data.memory.free : null);
+  $("ram-spec").textContent = available ? "Available memory" : free ? "Free memory · available not reported" : "Memory availability not reported";
+  $("ram-spec").title = available ? "Includes memory the OS estimates it can reclaim from caches." : free ? "Unused RAM only; reclaimable cache is not included. This API does not report available memory." : "The API returned neither a valid available-memory value nor a free-memory value.";
   $("ram-used").textContent = `${bytes(data.memory.used)} used / ${bytes(data.memory.total)} total`;
   $("ram-bar").value = ram || 0;
   $("storage-count").textContent = data.storage ? `${data.storage.length} entries` : "Unavailable";
@@ -155,7 +161,10 @@ function renderStats(data) {
   if (!ports.length) $("network-ports").textContent = data.errors.network ? "Interface data unavailable" : "No physical ports reported";
   $("ping-value").textContent = num(data.ping_ms) ? `${fmt(data.ping_ms)} ms` : data.ping_error ? "Unavailable" : "No reply";
   $("ping-note").textContent = data.ping_error || (num(data.ping_ms) ? "ICMP round-trip time from the machine running this monitor." : "No ICMP echo reply. The host may be unreachable or ICMP may be filtered.");
-  $("version").textContent = data.version || "Proxmox VE";
+  const version = typeof data.version === "string" ? data.version.trim() : "";
+  const release = version.match(/^pve-manager\/([^/]+)/)?.[1];
+  $("version").textContent = version ? `Proxmox VE · ${release || version}` : "Proxmox VE · version unavailable";
+  $("version").title = version;
   $("updated").textContent = `Updated ${new Date(data.sampled_at * 1000).toLocaleTimeString()}`;
   $("connection").textContent = data.demo ? "● Demo · fictional data" : "● Connected";
   $("connection").className = "good";
