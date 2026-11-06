@@ -18,7 +18,7 @@ Only the selected server is sampled, ten seconds after the previous request comp
 
 ## Development status
 
-Initial implementation and independent follow-up review complete. Live read-only compatibility has been verified with **Proxmox VE 9.2.11** from **Linux/Python 3.14**, covering node status, storage, network interfaces and cluster resources through a dedicated token with only `Sys.Audit`, `VM.Audit` and `Datastore.Audit`. The authenticated dashboard displayed the resulting CPU, memory, storage, guest counts and ping successfully. Other PVE versions and storage backends still need testing.
+Initial implementation and independent follow-up review are complete. The monitor is in live use with **Proxmox VE 8 and 9**. Verified read-only API checks include **PVE 9.2.11 and 9.2.25**, covering node status, storage, network interfaces and cluster resources through a dedicated token with only `Sys.Audit`, `VM.Audit` and `Datastore.Audit`. The authenticated dashboard has displayed CPU, memory, storage, guest counts and ping successfully. PVE 8 memory responses use the documented free-memory fallback when available memory is absent. These checks do not constitute an exhaustive version or storage-backend compatibility matrix.
 
 Demo data is explicitly fictional and does not contact any host. It is optional and must be enabled at initialization.
 
