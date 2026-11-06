@@ -2,7 +2,7 @@
 
 This deployment keeps Gunicorn on `127.0.0.1:8080` and puts nginx on public TCP 80/443. The existing shared access key still protects the application. No DNS record is required. All addresses below are documentation examples; substitute the deployment's actual public IPv4 address outside the repository.
 
-**Status:** independently reviewed and approved with documented findings. Development checks passed using nginx 1.28.3 and loopback-only test listeners: syntax, verified test TLS, redirects, ACME path handling, secure cookies, authenticated access, spoofed scheme headers and cross-origin rejection. No public certificate was requested. Production nginx checks, public ACME validation and renewal dry-run are still required before activation. Do not treat these templates as an already deployed public service.
+**Status:** independently reviewed and used for a completed reference deployment. Staging validation, production IP certificate issuance, external TLS verification, authenticated access, renewal dry-run with the nginx reload hook, and hourly renewal checks were completed; see [REVIEW.md](REVIEW.md#https-deployment-verification). The instructions below remain a deployment guide: customize the templates and complete the preflight, issuance, activation and renewal checks for each new installation.
 
 ## Preflight and recovery
 
